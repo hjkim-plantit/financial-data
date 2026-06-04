@@ -1,0 +1,32 @@
+name: Weekly KOFIA Name Update
+
+on:
+  schedule:
+    - cron: '30 21 * * 0'  # 매주 일요일 06:30 KST
+  workflow_dispatch:
+
+jobs:
+  kofia:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+          cache-dependency-path: backend/requirements.txt
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: KOFIA 한글명 업데이트
+        run: python scripts/update_fund_names_kr.py
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          FSC_API_KEY: ${{ secrets.FSC_API_KEY }}
+          SECRET_KEY: ${{ secrets.SECRET_KEY }}

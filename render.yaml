@@ -1,0 +1,24 @@
+services:
+  - type: web
+    name: financial-data-api
+    runtime: docker
+    dockerfilePath: backend/Dockerfile
+    dockerContext: backend
+    plan: free
+    envVars:
+      - key: DISABLE_SCHEDULER
+        value: "true"
+      - key: DATABASE_URL
+        sync: false
+      - key: REDASH_URL
+        value: https://redash.quantit.io
+      - key: REDASH_API_KEY
+        sync: false
+      - key: FSC_API_KEY
+        sync: false
+      - key: SECRET_KEY
+        sync: false
+      - key: GMAIL_TOKEN_JSON
+        sync: false
+      - key: ALLOWED_ORIGINS
+        value: https://financial-data-theta.vercel.app

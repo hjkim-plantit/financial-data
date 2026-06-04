@@ -1,0 +1,27 @@
+# Claude Code 설정 (시크릿 포함 가능)
+.claude/
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+.venv/
+*.egg-info/
+
+# 환경변수 / 시크릿
+.env
+.env.*
+credentials.json
+token.json
+
+# DB
+*.db
+*.sqlite
+
+# Node
+node_modules/
+dist/
+
+# 빌드 아티팩트
+*.log
+.DS_Store
