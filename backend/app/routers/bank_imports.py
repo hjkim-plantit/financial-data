@@ -8,6 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
 from app.services.bank_import_service import fetch_all
+from app.services.bank_diff_service import fetch_diff
 
 router = APIRouter(prefix="/bank-imports", tags=["기관 데이터"])
 
@@ -35,6 +36,51 @@ class InstitutionOut(BaseModel):
     etf_matched: int
     error: Optional[str]
     items: list[FundItemOut]
+
+
+class FieldChangeOut(BaseModel):
+    field: str
+    label: str
+    old: str
+    new: str
+
+
+class ProductChangeOut(BaseModel):
+    fund_code: str
+    fund_name: str
+    product_type: str
+    change_type: str
+    changes: list[FieldChangeOut]
+
+
+class InstitutionDiffOut(BaseModel):
+    key: str
+    name: str
+    today_date: Optional[str]
+    yesterday_date: Optional[str]
+    added: list[ProductChangeOut]
+    removed: list[ProductChangeOut]
+    changed: list[ProductChangeOut]
+    total_changes: int
+    error: Optional[str]
+
+
+@router.get("/diff", response_model=list[InstitutionDiffOut])
+async def get_diff():
+    """전일 vs 당일 첨부파일 비교 — 추가/삭제/변경 상품 반환."""
+    data = fetch_diff()
+    return [
+        InstitutionDiffOut(
+            key=r.key, name=r.name,
+            today_date=r.today_date, yesterday_date=r.yesterday_date,
+            added=[ProductChangeOut(fund_code=i.fund_code, fund_name=i.fund_name, product_type=i.product_type, change_type=i.change_type, changes=[FieldChangeOut(field=f.field, label=f.label, old=f.old, new=f.new) for f in i.changes]) for i in r.added],
+            removed=[ProductChangeOut(fund_code=i.fund_code, fund_name=i.fund_name, product_type=i.product_type, change_type=i.change_type, changes=[]) for i in r.removed],
+            changed=[ProductChangeOut(fund_code=i.fund_code, fund_name=i.fund_name, product_type=i.product_type, change_type=i.change_type, changes=[FieldChangeOut(field=f.field, label=f.label, old=f.old, new=f.new) for f in i.changes]) for i in r.changed],
+            total_changes=r.total_changes,
+            error=r.error,
+        )
+        for r in data
+    ]
 
 
 @router.get("/latest", response_model=list[InstitutionOut])
