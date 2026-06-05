@@ -1,9 +1,11 @@
+import os
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import select
 
+from app.core.config import settings
 from app.routers import categories, funds, uploads
 from app.routers import imports as imports_router
 from app.routers import bank_imports
@@ -61,8 +63,7 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
-import os
-_extra_origins = [o.strip() for o in os.getenv("ALLOWED_ORIGINS", "").split(",") if o.strip()]
+_extra_origins = [o.strip() for o in settings.allowed_origins.split(",") if o.strip()]
 
 app.add_middleware(
     CORSMiddleware,

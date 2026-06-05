@@ -14,6 +14,11 @@ class Settings(BaseSettings):
     redash_url: str = "https://redash.quantit.io"
     redash_api_key: str = ""
 
+    # ngrok / 배포
+    ngrok_authtoken: str = ""
+    ngrok_domain: str = ""
+    allowed_origins: str = ""
+
     class Config:
         env_file = ".env"
 
