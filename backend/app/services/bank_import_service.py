@@ -271,17 +271,26 @@ def _get_gmail_service():
     return build("gmail", "v1", credentials=creds)
 
 
-def _find_attachment(parts: list) -> Optional[tuple[str, str]]:
+def _find_all_attachments(parts: list) -> list[tuple[str, str]]:
+    """이메일 파트에서 모든 CSV/xlsx 첨부파일 목록 반환."""
+    results = []
     for part in parts:
         if part.get("parts"):
-            r = _find_attachment(part["parts"])
-            if r:
-                return r
-        fname = part.get("filename", "")
+            results.extend(_find_all_attachments(part["parts"]))
+        fname  = part.get("filename", "")
         att_id = part.get("body", {}).get("attachmentId", "")
-        if fname and att_id and fname.lower().split(".")[-1] in ("csv", "xlsx", "xls"):
-            return fname, att_id
-    return None
+        if fname and att_id and fname.lower().rsplit(".", 1)[-1] in ("csv", "xlsx", "xls"):
+            results.append((fname, att_id))
+    return results
+
+
+def _find_attachment(parts: list) -> Optional[tuple[str, str]]:
+    """[우리자산운용] 없는 파일 우선 선택 — KRZ 코드 포함 은행 직발 파일 우선."""
+    atts = _find_all_attachments(parts)
+    if not atts:
+        return None
+    preferred = [a for a in atts if "우리자산운용" not in a[0]]
+    return preferred[0] if preferred else atts[0]
 
 
 def _parse_attachment(data: bytes, filename: str) -> pd.DataFrame:
@@ -398,8 +407,13 @@ def _fetch_one(
                 product_type = "etf"
                 matched = code in db_etfs
             else:
-                # 펀드: KOFIA 코드 사용 (K55/KR5), 우리은행은 KRZ → 미매칭
-                code = fund_code if fund_code and not fund_code.startswith("KR7") else etf_code
+                # KRZ(예탁원) 우선 → K55(KOFIA) 폴백
+                if etf_code.startswith("KRZ"):
+                    code = etf_code
+                elif fund_code and not fund_code.startswith("KR7"):
+                    code = fund_code
+                else:
+                    code = etf_code
                 product_type = "fund"
                 matched = code in db_funds
 

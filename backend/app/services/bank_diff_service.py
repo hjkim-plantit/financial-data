@@ -93,7 +93,14 @@ def _df_to_map(df: pd.DataFrame, cfg: InstitutionConfig) -> dict[str, dict]:
         name      = str(row.get(c["name"],       "") or "").strip() if c["name"]      else ""
 
         is_etf = etf_code.startswith("KR7")
-        code = etf_code if is_etf else (fund_code or etf_code)
+        if is_etf:
+            code = etf_code
+        elif etf_code.startswith("KRZ"):
+            code = etf_code   # KRZ(예탁원) 우선
+        elif fund_code:
+            code = fund_code  # K55(KOFIA) 폴백
+        else:
+            code = etf_code
         if not code or code == "nan":
             continue
 
