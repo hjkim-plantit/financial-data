@@ -6,6 +6,109 @@ import type { InstitutionData, FundItem } from '../api/bankImports'
 import type { InstitutionDiff, ProductChange } from '../api/bankDiff'
 import clsx from 'clsx'
 
+// ── 종목 마스터 CSV 생성 ──────────────────────────────────────
+
+const RISK_LABEL: Record<number, string> = {
+  1: '매우높은위험 (1등급)',
+  2: '높은위험 (2등급)',
+  3: '다소높은위험 (3등급)',
+  4: '보통위험 (4등급)',
+  5: '낮은위험 (5등급)',
+  6: '매우낮은위험 (6등급)',
+}
+
+const CSV_HEADERS = [
+  '종목명', 'Short Code/티커', 'ISIN', '자산분류', '자산군', '상장', '지역',
+  '환 전략', '과세유형', '복제방식', '운용방식', '섹터', '위험 등급', '간이투자설명서',
+  'Plantit 배당', 'Plantit 채권 액티브', 'Plantit 섹터&테마', '18차 유니버설',
+  '우리자산x퀀팃 ROBO 글로벌 자산배분 EMP_P', '우리자산x퀀팃 ROBO 글로벌 자산배분 FOF_P',
+  '퀀팃 SAIV-ROBO 글로벌 자산배분',
+  'BNK부산_EMP', 'BNK부산_FOF', 'BNK경남_EMP', 'BNK경남_FOF',
+]
+
+function csvCell(s: string): string {
+  if (s.includes(',') || s.includes('"') || s.includes('\n')) return `"${s.replace(/"/g, '""')}"`
+  return s
+}
+
+function buildMasterCsv(institutions: InstitutionData[]): string {
+  const map = new Map<string, {
+    name: string; code: string; productType: string
+    riskGrade: number | null
+    woori: boolean; busan: boolean; gyeongnam: boolean
+  }>()
+
+  for (const inst of institutions) {
+    for (const item of inst.items) {
+      if (!item.available) continue
+      const existing = map.get(item.fund_code)
+      if (existing) {
+        if (inst.key === 'woori')        existing.woori = true
+        if (inst.key === 'bnk_busan')   existing.busan = true
+        if (inst.key === 'bnk_gyeongnam') existing.gyeongnam = true
+      } else {
+        map.set(item.fund_code, {
+          name: item.fund_name, code: item.fund_code, productType: item.product_type,
+          riskGrade: item.risk_grade,
+          woori:     inst.key === 'woori',
+          busan:     inst.key === 'bnk_busan',
+          gyeongnam: inst.key === 'bnk_gyeongnam',
+        })
+      }
+    }
+  }
+
+  const b = (v: boolean) => v ? 'TRUE' : 'FALSE'
+
+  const rows: string[][] = [CSV_HEADERS]
+  for (const p of map.values()) {
+    const isEtf = p.productType === 'etf'
+    const code  = p.code
+    const shortCode = (code.startsWith('KR7') || code.startsWith('KRZ')) ? code.slice(3, 9) : code
+    const isin      = (code.startsWith('KR7') || code.startsWith('KRZ')) ? code : ''
+    const riskLabel = p.riskGrade ? (RISK_LABEL[p.riskGrade] ?? '') : ''
+
+    rows.push([
+      p.name, shortCode, isin,
+      isEtf ? 'ETF' : 'FUND',
+      '',        // 자산군 — 작성 필요
+      '국내',
+      '',        // 지역 — 작성 필요
+      '', '', '', '',  // 환 전략, 과세유형, 복제방식, 운용방식 — 생략
+      '해당없음', // 섹터 기본값
+      riskLabel,
+      '',        // 간이투자설명서
+      b(isEtf),  // Plantit 배당
+      b(false),  // Plantit 채권 액티브 — 자산군 채권 확정 후 수동 업데이트
+      b(isEtf),  // Plantit 섹터&테마
+      b(isEtf),  // 18차 유니버설
+      b(p.woori && isEtf),     // 우리자산x퀀팃 EMP_P
+      b(p.woori && !isEtf),    // 우리자산x퀀팃 FOF_P
+      b(isEtf),                // 퀀팃 SAIV-ROBO
+      b(p.busan && isEtf),     // BNK부산_EMP
+      b(p.busan && !isEtf),    // BNK부산_FOF
+      b(p.gyeongnam && isEtf), // BNK경남_EMP
+      b(p.gyeongnam && !isEtf),// BNK경남_FOF
+    ])
+  }
+
+  return rows.map(r => r.map(csvCell).join(',')).join('\r\n')
+}
+
+function downloadMasterCsv(institutions: InstitutionData[]) {
+  const csv  = buildMasterCsv(institutions)
+  const today = new Date().toISOString().slice(0, 10).replace(/-/g, '')
+  const blob = new Blob(['﻿' + csv], { type: 'text/csv;charset=utf-8' })
+  const url  = URL.createObjectURL(blob)
+  const a    = document.createElement('a')
+  a.href = url
+  a.download = `종목마스터_${today}.csv`
+  document.body.appendChild(a)
+  a.click()
+  document.body.removeChild(a)
+  URL.revokeObjectURL(url)
+}
+
 // ── 공통 유틸 ──────────────────────────────────────────────────
 
 function formatDate(d: string | null): string {
@@ -325,13 +428,25 @@ export default function BankImportsPage() {
           <h1 className="text-xl font-bold text-slate-800">기관 데이터</h1>
           <p className="text-sm text-slate-500 mt-0.5">3개 기관 퇴직연금 상품목록 — 최신 이메일 기준</p>
         </div>
-        <button onClick={refetch} disabled={isFetching}
-          className="flex items-center gap-2 px-3 py-2 rounded-lg text-sm text-slate-600 bg-white border border-slate-200 hover:bg-slate-50 disabled:opacity-50">
-          <svg className={clsx('w-4 h-4', isFetching && 'animate-spin')} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-          </svg>
-          {isFetching ? '불러오는 중...' : '새로고침'}
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => downloadMasterCsv(institutions)}
+            disabled={institutions.length === 0 || isLoading}
+            className="flex items-center gap-2 px-3 py-2 rounded-lg text-sm text-white bg-blue-600 hover:bg-blue-700 disabled:opacity-40 disabled:cursor-not-allowed"
+          >
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+            </svg>
+            종목 마스터 CSV
+          </button>
+          <button onClick={refetch} disabled={isFetching}
+            className="flex items-center gap-2 px-3 py-2 rounded-lg text-sm text-slate-600 bg-white border border-slate-200 hover:bg-slate-50 disabled:opacity-50">
+            <svg className={clsx('w-4 h-4', isFetching && 'animate-spin')} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+            </svg>
+            {isFetching ? '불러오는 중...' : '새로고침'}
+          </button>
+        </div>
       </div>
 
       {isLoading && (
