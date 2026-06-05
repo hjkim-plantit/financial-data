@@ -119,43 +119,73 @@ def _diff_maps(
     yesterday: dict[str, dict],
     today: dict[str, dict],
 ) -> tuple[list[ProductChange], list[ProductChange], list[ProductChange]]:
-    """두 딕셔너리를 비교해 (added, removed, changed) 반환."""
+    """두 딕셔너리 비교 — 코드가 달라도 펀드명 동일하면 같은 상품으로 인식.
+
+    KRZ ↔ K55 코드 전환(경남은행 등)으로 동일 펀드가 신규·삭제로 오인되는 문제 방지.
+    """
+    same_code      = set(yesterday) & set(today)
+    only_today     = set(today)     - set(yesterday)
+    only_yesterday = set(yesterday) - set(today)
+
+    # 코드가 바뀐 쌍 탐지: 이름이 같으면 같은 펀드로 간주
+    y_by_name = {v["name"]: k for k, v in yesterday.items() if k in only_yesterday}
+    t_by_name = {v["name"]: k for k, v in today.items()     if k in only_today}
+
+    code_swapped: list[tuple[str, str]] = []  # (y_code, t_code)
+    for name, t_code in t_by_name.items():
+        y_code = y_by_name.get(name)
+        if y_code:
+            code_swapped.append((y_code, t_code))
+
+    skip_y = {p[0] for p in code_swapped}
+    skip_t = {p[1] for p in code_swapped}
+
     added, removed, changed = [], [], []
 
-    all_codes = set(yesterday) | set(today)
-    for code in sorted(all_codes):
-        y = yesterday.get(code)
-        t = today.get(code)
+    def _field_changes(y: dict, t: dict) -> list[FieldChange]:
+        return [
+            FieldChange(field=k, label=l, old=y.get(k, ""), new=t.get(k, ""))
+            for k, l in _WATCH_FIELDS.items()
+            if y.get(k, "") != t.get(k, "")
+        ]
 
-        if y is None:
-            added.append(ProductChange(
-                fund_code=code, fund_name=t["name"],
-                product_type=t["product_type"],
-                change_type="added", changes=[],
+    # 코드 동일 → 필드 변경 확인
+    for code in sorted(same_code):
+        diffs = _field_changes(yesterday[code], today[code])
+        if diffs:
+            changed.append(ProductChange(
+                fund_code=code, fund_name=today[code]["name"],
+                product_type=today[code]["product_type"],
+                change_type="changed", changes=diffs,
             ))
-        elif t is None:
-            removed.append(ProductChange(
-                fund_code=code, fund_name=y["name"],
-                product_type=y["product_type"],
-                change_type="removed", changes=[],
+
+    # 코드 전환쌍 → 신규/삭제 아님, 필드 변경만 확인
+    for y_code, t_code in code_swapped:
+        diffs = _field_changes(yesterday[y_code], today[t_code])
+        if diffs:
+            changed.append(ProductChange(
+                fund_code=t_code, fund_name=today[t_code]["name"],
+                product_type=today[t_code]["product_type"],
+                change_type="changed", changes=diffs,
             ))
-        else:
-            field_changes = []
-            for key, label in _WATCH_FIELDS.items():
-                old_val = y.get(key, "")
-                new_val = t.get(key, "")
-                if old_val != new_val:
-                    field_changes.append(FieldChange(
-                        field=key, label=label, old=old_val, new=new_val,
-                    ))
-            if field_changes:
-                changed.append(ProductChange(
-                    fund_code=code,
-                    fund_name=t["name"],
-                    product_type=t["product_type"],
-                    change_type="changed",
-                    changes=field_changes,
-                ))
+
+    # 순수 신규
+    for code in sorted(only_today - skip_t):
+        t = today[code]
+        added.append(ProductChange(
+            fund_code=code, fund_name=t["name"],
+            product_type=t["product_type"],
+            change_type="added", changes=[],
+        ))
+
+    # 순수 삭제
+    for code in sorted(only_yesterday - skip_y):
+        y = yesterday[code]
+        removed.append(ProductChange(
+            fund_code=code, fund_name=y["name"],
+            product_type=y["product_type"],
+            change_type="removed", changes=[],
+        ))
 
     return added, removed, changed
 
