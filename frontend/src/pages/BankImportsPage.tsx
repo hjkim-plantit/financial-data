@@ -404,9 +404,12 @@ function DiffTable({ diff }: { diff: InstitutionDiff }) {
 
 type ViewTab = 'products' | 'diff'
 
+type DlState = 'idle' | 'working' | 'done'
+
 export default function BankImportsPage() {
   const [selectedKey, setSelectedKey] = useState<string | null>(null)
   const [viewTab, setViewTab] = useState<ViewTab>('products')
+  const [dlState, setDlState] = useState<DlState>('idle')
 
   const latestQ = useQuery({ queryKey: ['bank-imports'], queryFn: getLatestBankImports, staleTime: 5 * 60 * 1000 })
   const diffQ   = useQuery({ queryKey: ['bank-diff'],    queryFn: getBankDiff,          staleTime: 5 * 60 * 1000 })
@@ -425,6 +428,22 @@ export default function BankImportsPage() {
 
   function refetch() { latestQ.refetch(); diffQ.refetch() }
 
+  function handleDownload() {
+    setDlState('working')
+    // setTimeout 0으로 렌더 먼저 반영 후 무거운 작업 실행
+    setTimeout(() => {
+      try {
+        downloadMasterCsv(institutions)
+        setDlState('done')
+      } catch {
+        setDlState('idle')
+      }
+      setTimeout(() => setDlState('idle'), 2000)
+    }, 0)
+  }
+
+  const dlDisabled = institutions.length === 0 || isLoading || dlState === 'working'
+
   return (
     <div className="p-6 space-y-5">
       {/* Header */}
@@ -435,14 +454,39 @@ export default function BankImportsPage() {
         </div>
         <div className="flex items-center gap-2">
           <button
-            onClick={() => downloadMasterCsv(institutions)}
-            disabled={institutions.length === 0 || isLoading}
-            className="flex items-center gap-2 px-3 py-2 rounded-lg text-sm text-white bg-blue-600 hover:bg-blue-700 disabled:opacity-40 disabled:cursor-not-allowed"
+            onClick={handleDownload}
+            disabled={dlDisabled}
+            className={clsx(
+              'flex items-center gap-2 px-3 py-2 rounded-lg text-sm text-white transition-colors disabled:cursor-not-allowed',
+              dlState === 'done'    ? 'bg-green-600'                        :
+              dlState === 'working' ? 'bg-blue-400 opacity-80'              :
+                                     'bg-blue-600 hover:bg-blue-700',
+              dlDisabled && dlState !== 'working' && 'opacity-40',
+            )}
           >
-            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
-            </svg>
-            종목 마스터 CSV
+            {dlState === 'working' ? (
+              <>
+                <svg className="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">
+                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                </svg>
+                생성 중...
+              </>
+            ) : dlState === 'done' ? (
+              <>
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                </svg>
+                다운로드 완료
+              </>
+            ) : (
+              <>
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                </svg>
+                종목 마스터 CSV
+              </>
+            )}
           </button>
           <button onClick={refetch} disabled={isFetching}
             className="flex items-center gap-2 px-3 py-2 rounded-lg text-sm text-slate-600 bg-white border border-slate-200 hover:bg-slate-50 disabled:opacity-50">
