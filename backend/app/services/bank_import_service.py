@@ -12,12 +12,103 @@ import base64
 import io
 import logging
 import os
+import re
 from dataclasses import dataclass, field
 from typing import Optional
 
 import pandas as pd
 
 logger = logging.getLogger(__name__)
+
+
+# ── 종목 마스터 분류 ───────────────────────────────────────────
+
+# internal_category_id → 자산군 (허용값만)
+_CAT_TO_ASSET: dict[int, str] = {
+    1:  "주식",
+    2:  "채권",
+    4:  "대체투자-부동산",
+    5:  "대체투자-인프라",
+    6:  "대체투자-통화/외환",
+    8:  "대체투자-원자재-금속",
+    9:  "대체투자-원자재-에너지",
+    10: "대체투자-원자재-농산물",
+    11: "대체투자-원자재-기타",
+}
+
+# 펀드명 키워드 → 자산군 (DB 미매칭 시 폴백)
+_ASSET_PATTERNS: list[tuple[str, str]] = [
+    (r"채권|국채|회사채|국공채|bond|fixed.?income|mmf|money.?market|단기금융|머니마켓", "채권"),
+    (r"부동산|리츠|reit", "대체투자-부동산"),
+    (r"인프라|infrastructure", "대체투자-인프라"),
+    (r"통화|외환|currency|forex", "대체투자-통화/외환"),
+    (r"원유|wti|브렌트|brent|crude|천연가스|natural.?gas", "대체투자-원자재-에너지"),
+    (r"금\b|은\b|gold|silver|귀금속|copper|구리|metal|platinum", "대체투자-원자재-금속"),
+    (r"농산물|agri|grain|corn|wheat|soybean", "대체투자-원자재-농산물"),
+    (r"원자재|commodity|commodities", "대체투자-원자재-기타"),
+]
+
+# 펀드명 키워드 → 지역 (우선순위 순)
+_REGION_PATTERNS: list[tuple[str, str]] = [
+    (r"미국|s&p|sp500|nasdaq|나스닥|다우|dow|russell|뉴욕|us\s", "선진국-미국"),
+    (r"일본|japan|nikkei|니케이|topix", "선진국-일본"),
+    (r"영국|uk\s|ftse|런던", "선진국-영국"),
+    (r"독일|germany|dax|프랑크푸르트", "선진국-독일"),
+    (r"프랑스|france|cac", "선진국-프랑스"),
+    (r"스위스|switzerland|swiss", "선진국-스위스"),
+    (r"싱가포르|singapore", "선진국-싱가포르"),
+    (r"선진국|developed|eafe", "선진국-기타"),
+    (r"중국|china|csi|후강퉁|선강퉁|홍콩|hang.?seng|항셍", "신흥국-중국"),
+    (r"한국|korea|kospi|kosdaq|코스피|코스닥", "신흥국-한국"),
+    (r"대만|taiwan", "신흥국-대만"),
+    (r"인도|india|nifty", "신흥국-인도"),
+    (r"베트남|vietnam|viet", "신흥국-베트남"),
+    (r"남아공|south.?africa", "신흥국-남아공"),
+    (r"신흥국|emerging|\bem\b", "신흥국-기타"),
+    (r"글로벌|global|world|전세계|msci|all.?country", "글로벌"),
+]
+
+# 펀드명 키워드 → 섹터 (허용값만; 미매칭 시 해당없음)
+_SECTOR_PATTERNS: list[tuple[str, str]] = [
+    (r"헬스케어|바이오|제약|pharma|health|bio|의료|biotech", "헬스케어"),
+    (r"반도체|semiconductor|소프트|software|정보기술|테크|tech|ai\b|인공지능|클라우드|cloud|인터넷|it\s", "정보기술"),
+    (r"원유|wti|브렌트|천연가스|에너지|oil|gas|energy|petroleum", "에너지"),
+    (r"금융|은행|보험|증권|bank|financ|insuran", "금융"),
+    (r"부동산|리츠|reit", "부동산"),
+    (r"소재|material|화학|chemical|steel|철강", "소재"),
+    (r"산업재|industri|항공우주|방산|defense|aerospace", "산업재"),
+    (r"필수소비재|consumer.?staple|식품|food|농식품", "필수소비재"),
+    (r"임의소비재|consumer.?disc|유통|retail|여행|레저|엔터|entertainment", "임의소비재"),
+    (r"통신|telecom|커뮤니케이션|communication|media|미디어", "통신서비스"),
+    (r"유틸리티|util|전력|electric.?power", "유틸리티"),
+]
+
+
+def _classify_asset_class(name: str, category_id: Optional[int]) -> str:
+    if category_id and category_id in _CAT_TO_ASSET:
+        return _CAT_TO_ASSET[category_id]
+    for pattern, value in _ASSET_PATTERNS:
+        if re.search(pattern, name, re.I):
+            return value
+    return "주식"  # 기본값
+
+
+def _classify_region(name: str, db_region: Optional[str]) -> str:
+    for pattern, value in _REGION_PATTERNS:
+        if re.search(pattern, name, re.I):
+            return value
+    if db_region == "글로벌":
+        return "글로벌"
+    if db_region == "해외":
+        return "선진국-기타"
+    return "신흥국-한국"  # 국내 기본값
+
+
+def _classify_sector(name: str) -> str:
+    for pattern, value in _SECTOR_PATTERNS:
+        if re.search(pattern, name, re.I):
+            return value
+    return "해당없음"
 
 
 # ── 기관별 설정 ────────────────────────────────────────────────
@@ -124,6 +215,9 @@ class FundItem:
     start_date: Optional[str]
     end_date: Optional[str]
     matched: bool
+    asset_class: str = ""   # 자산군
+    region: str = ""        # 지역
+    sector: str = ""        # 섹터
 
 
 @dataclass
@@ -217,7 +311,11 @@ def _kst_date(date_str: str) -> str:
 
 # ── 메인 fetch ────────────────────────────────────────────────
 
-def fetch_all(db_funds: set[str], db_etfs: set[str]) -> list[InstitutionResult]:
+def fetch_all(
+    db_funds: set[str],
+    db_etfs: set[str],
+    db_meta: dict[str, dict],
+) -> list[InstitutionResult]:
     """3개 기관 최신 첨부파일 파싱 + DB 크로스체크."""
     try:
         service = _get_gmail_service()
@@ -233,7 +331,7 @@ def fetch_all(db_funds: set[str], db_etfs: set[str]) -> list[InstitutionResult]:
             for c in INSTITUTIONS
         ]
 
-    return [_fetch_one(service, cfg, db_funds, db_etfs) for cfg in INSTITUTIONS]
+    return [_fetch_one(service, cfg, db_funds, db_etfs, db_meta) for cfg in INSTITUTIONS]
 
 
 def _fetch_one(
@@ -241,6 +339,7 @@ def _fetch_one(
     cfg: InstitutionConfig,
     db_funds: set[str],
     db_etfs: set[str],
+    db_meta: dict[str, dict],
 ) -> InstitutionResult:
     def err(msg: str) -> InstitutionResult:
         return InstitutionResult(
@@ -307,12 +406,16 @@ def _fetch_one(
             if not code or code == "nan":
                 continue
 
+            meta = db_meta.get(code, {})
             items.append(FundItem(
                 fund_code=code, fund_name=name,
                 product_type=product_type,
                 available=avail, risk_grade=risk_grade,
                 start_date=start, end_date=end_d,
                 matched=matched,
+                asset_class=_classify_asset_class(name, meta.get("category_id")),
+                region=_classify_region(name, meta.get("region")),
+                sector=_classify_sector(name),
             ))
 
         fund_items = [i for i in items if i.product_type == "fund"]

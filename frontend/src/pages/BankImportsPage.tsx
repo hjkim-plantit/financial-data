@@ -35,6 +35,7 @@ function buildMasterCsv(institutions: InstitutionData[]): string {
   const map = new Map<string, {
     name: string; code: string; productType: string
     riskGrade: number | null
+    assetClass: string; region: string; sector: string
     woori: boolean; busan: boolean; gyeongnam: boolean
   }>()
 
@@ -43,16 +44,19 @@ function buildMasterCsv(institutions: InstitutionData[]): string {
       if (!item.available) continue
       const existing = map.get(item.fund_code)
       if (existing) {
-        if (inst.key === 'woori')        existing.woori = true
-        if (inst.key === 'bnk_busan')   existing.busan = true
-        if (inst.key === 'bnk_gyeongnam') existing.gyeongnam = true
+        if (inst.key === 'woori')           existing.woori = true
+        if (inst.key === 'bnk_busan')       existing.busan = true
+        if (inst.key === 'bnk_gyeongnam')   existing.gyeongnam = true
       } else {
         map.set(item.fund_code, {
           name: item.fund_name, code: item.fund_code, productType: item.product_type,
           riskGrade: item.risk_grade,
-          woori:     inst.key === 'woori',
-          busan:     inst.key === 'bnk_busan',
-          gyeongnam: inst.key === 'bnk_gyeongnam',
+          assetClass: item.asset_class,
+          region:     item.region,
+          sector:     item.sector,
+          woori:      inst.key === 'woori',
+          busan:      inst.key === 'bnk_busan',
+          gyeongnam:  inst.key === 'bnk_gyeongnam',
         })
       }
     }
@@ -62,8 +66,9 @@ function buildMasterCsv(institutions: InstitutionData[]): string {
 
   const rows: string[][] = [CSV_HEADERS]
   for (const p of map.values()) {
-    const isEtf = p.productType === 'etf'
-    const code  = p.code
+    const isEtf   = p.productType === 'etf'
+    const isBond  = p.assetClass === '채권'
+    const code    = p.code
     const shortCode = (code.startsWith('KR7') || code.startsWith('KRZ')) ? code.slice(3, 9) : code
     const isin      = (code.startsWith('KR7') || code.startsWith('KRZ')) ? code : ''
     const riskLabel = p.riskGrade ? (RISK_LABEL[p.riskGrade] ?? '') : ''
@@ -71,24 +76,24 @@ function buildMasterCsv(institutions: InstitutionData[]): string {
     rows.push([
       p.name, shortCode, isin,
       isEtf ? 'ETF' : 'FUND',
-      '',        // 자산군 — 작성 필요
+      p.assetClass,   // 자산군 — DB+키워드 분류
       '국내',
-      '',        // 지역 — 작성 필요
-      '', '', '', '',  // 환 전략, 과세유형, 복제방식, 운용방식 — 생략
-      '해당없음', // 섹터 기본값
+      p.region,       // 지역 — DB+키워드 분류
+      '', '', '', '', // 환 전략, 과세유형, 복제방식, 운용방식 — 생략
+      p.sector,       // 섹터 — 키워드 분류
       riskLabel,
-      '',        // 간이투자설명서
-      b(isEtf),  // Plantit 배당
-      b(false),  // Plantit 채권 액티브 — 자산군 채권 확정 후 수동 업데이트
-      b(isEtf),  // Plantit 섹터&테마
-      b(isEtf),  // 18차 유니버설
-      b(p.woori && isEtf),     // 우리자산x퀀팃 EMP_P
-      b(p.woori && !isEtf),    // 우리자산x퀀팃 FOF_P
-      b(isEtf),                // 퀀팃 SAIV-ROBO
-      b(p.busan && isEtf),     // BNK부산_EMP
-      b(p.busan && !isEtf),    // BNK부산_FOF
-      b(p.gyeongnam && isEtf), // BNK경남_EMP
-      b(p.gyeongnam && !isEtf),// BNK경남_FOF
+      '',             // 간이투자설명서
+      b(isEtf),                 // Plantit 배당
+      b(isEtf && isBond),       // Plantit 채권 액티브 — ETF 중 채권만
+      b(isEtf),                 // Plantit 섹터&테마
+      b(isEtf),                 // 18차 유니버설
+      b(p.woori && isEtf),      // 우리자산x퀀팃 EMP_P
+      b(p.woori && !isEtf),     // 우리자산x퀀팃 FOF_P
+      b(isEtf),                 // 퀀팃 SAIV-ROBO
+      b(p.busan && isEtf),      // BNK부산_EMP
+      b(p.busan && !isEtf),     // BNK부산_FOF
+      b(p.gyeongnam && isEtf),  // BNK경남_EMP
+      b(p.gyeongnam && !isEtf), // BNK경남_FOF
     ])
   }
 

@@ -9,6 +9,9 @@ export interface FundItem {
   start_date: string | null
   end_date: string | null
   matched: boolean
+  asset_class: string
+  region: string
+  sector: string
 }
 
 export interface InstitutionData {

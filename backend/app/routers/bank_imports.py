@@ -22,6 +22,9 @@ class FundItemOut(BaseModel):
     start_date: Optional[str]
     end_date: Optional[str]
     matched: bool
+    asset_class: str
+    region: str
+    sector: str
 
 
 class InstitutionOut(BaseModel):
@@ -86,12 +89,15 @@ async def get_diff():
 @router.get("/latest", response_model=list[InstitutionOut])
 async def get_latest(db: AsyncSession = Depends(get_db)):
     """3개 기관의 가장 최근 이메일을 파싱해 펀드/ETF로 분리하여 DB와 크로스체크한다."""
-    result = await db.execute(text("SELECT fund_code, product_type FROM funds"))
+    result = await db.execute(
+        text("SELECT fund_code, product_type, internal_category_id, investment_region FROM funds")
+    )
     rows = result.fetchall()
     db_funds = {r[0] for r in rows if r[1] == "fund"}
     db_etfs  = {r[0] for r in rows if r[1] == "etf"}
+    db_meta  = {r[0]: {"category_id": r[2], "region": r[3]} for r in rows}
 
-    data = fetch_all(db_funds, db_etfs)
+    data = fetch_all(db_funds, db_etfs, db_meta)
     return [
         InstitutionOut(
             key=r.key, name=r.name,
@@ -107,6 +113,9 @@ async def get_latest(db: AsyncSession = Depends(get_db)):
                     available=i.available, risk_grade=i.risk_grade,
                     start_date=i.start_date, end_date=i.end_date,
                     matched=i.matched,
+                    asset_class=i.asset_class,
+                    region=i.region,
+                    sector=i.sector,
                 )
                 for i in r.items
             ],
