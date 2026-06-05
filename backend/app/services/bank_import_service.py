@@ -57,14 +57,15 @@ INSTITUTIONS: list[InstitutionConfig] = [
         key="bnk_busan",
         name="BNK부산은행",
         query="subject:BNK 부산은행 퇴직연금 상품목록 has:attachment",
-        fund_code_col="rtpen_kofia_fund_cd",  # K55/KR5
-        etf_code_col="rtpen_dpbd_fund_cd",    # KR7
-        name_col="pdt_knm",
-        date_col="crdt",
-        avail_col="sell_psblyn",
-        start_col="sell_strdt",
-        end_col="sell_edt",
-        risk_col="cmtg_fund_risk_dvcd",
+        # [퀀팃투자자문] 발신 최신 메일은 경남은행과 동일한 한글 컬럼 포맷
+        fund_code_col="퇴직연금상품통합관리번호",
+        etf_code_col="예탁원펀드코드",
+        name_col="상품한글명",
+        date_col="기준일자",
+        avail_col="상품판매가능여부",
+        start_col="취급시작일",
+        end_col="취급종료일",
+        risk_col="일임펀드위험구분코드",
     ),
     InstitutionConfig(
         key="bnk_gyeongnam",
