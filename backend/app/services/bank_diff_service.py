@@ -65,9 +65,12 @@ _WATCH_FIELDS = {
 
 
 def _parse_email(service, msg_id: str, cfg: InstitutionConfig) -> Optional[pd.DataFrame]:
-    """메일 ID → 첨부파일 파싱 → DataFrame 반환."""
+    """메일 ID → 첨부파일 파싱 → DataFrame 반환. 우리자산운용 이메일은 None 반환."""
     try:
         msg = service.users().messages().get(userId="me", id=msg_id).execute()
+        hdrs = {h["name"]: h["value"] for h in msg["payload"]["headers"]}
+        if "우리자산운용" in hdrs.get("Subject", ""):
+            return None
         att = _find_attachment(msg["payload"].get("parts", []))
         if not att:
             return None
@@ -92,6 +95,15 @@ def _df_to_map(df: pd.DataFrame, cfg: InstitutionConfig) -> dict[str, dict]:
         etf_code  = str(row.get(c["etf_code"],  "") or "").strip() if c["etf_code"]  else ""
         fund_code = str(row.get(c["fund_code"],  "") or "").strip() if c["fund_code"] else ""
         name      = str(row.get(c["name"],       "") or "").strip() if c["name"]      else ""
+
+        avail_str = str(row.get(c["avail"], "") or "").strip().upper() if c["avail"] else "Y"
+        end_str   = str(row.get(c["end"],   "") or "").strip()        if c["end"]   else "99991231"
+
+        # 판매가능 Y + 취급종료일 99991231인 상품만 비교 대상에 포함
+        if avail_str != "Y":
+            continue
+        if end_str and end_str.replace("-", "") != "99991231":
+            continue
 
         is_etf = etf_code.startswith("KR7")
         if is_etf:

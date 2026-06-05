@@ -176,9 +176,9 @@ INSTITUTIONS: list[InstitutionConfig] = [
     InstitutionConfig(
         key="bnk_busan",
         name="BNK부산은행",
-        query="subject:BNK 부산은행 퇴직연금 상품목록 has:attachment",
-        # 한글 포맷([퀀팃투자자문])과 영문 포맷(은행 직발) 모두 지원
-        fund_code_cols=["퇴직연금상품통합관리번호", "rtpen_kofia_fund_cd"],
+        # [우리자산운용] 이메일 제외, 예탁원 코드 기준
+        query='"BNK 부산은행 퇴직연금 상품목록" -"우리자산운용" has:attachment',
+        fund_code_cols=["예탁원펀드코드", "rtpen_dpbd_fund_cd"],  # KRZ 기준
         etf_code_cols= ["예탁원펀드코드", "rtpen_dpbd_fund_cd"],
         name_cols=     ["상품한글명", "pdt_knm"],
         date_cols=     ["기준일자", "crdt"],
@@ -190,8 +190,9 @@ INSTITUTIONS: list[InstitutionConfig] = [
     InstitutionConfig(
         key="bnk_gyeongnam",
         name="BNK경남은행",
-        query="subject:BNK 경남은행 퇴직연금 상품목록 has:attachment",
-        fund_code_cols=["퇴직연금상품통합관리번호", "rtpen_kofia_fund_cd"],
+        # [우리자산운용] 이메일 제외, 예탁원 코드 기준
+        query='"BNK 경남은행 퇴직연금 상품목록" -"우리자산운용" has:attachment',
+        fund_code_cols=["예탁원펀드코드", "rtpen_dpbd_fund_cd"],  # KRZ 기준
         etf_code_cols= ["예탁원펀드코드", "rtpen_dpbd_fund_cd"],
         name_cols=     ["상품한글명", "pdt_knm"],
         date_cols=     ["기준일자", "crdt"],
@@ -360,13 +361,26 @@ def _fetch_one(
         )
 
     try:
-        resp = service.users().messages().list(userId="me", q=cfg.query, maxResults=1).execute()
+        # 최대 5건 조회 후 [우리자산운용] 이메일 프로그래밍 방식으로도 제외 (안전망)
+        resp = service.users().messages().list(userId="me", q=cfg.query, maxResults=5).execute()
         msgs = resp.get("messages", [])
         if not msgs:
             return err("최근 메일 없음")
 
-        msg = service.users().messages().get(userId="me", id=msgs[0]["id"]).execute()
-        headers = {h["name"]: h["value"] for h in msg["payload"]["headers"]}
+        msg = None
+        headers: dict[str, str] = {}
+        for m in msgs:
+            candidate = service.users().messages().get(userId="me", id=m["id"]).execute()
+            hdrs = {h["name"]: h["value"] for h in candidate["payload"]["headers"]}
+            if "우리자산운용" in hdrs.get("Subject", ""):
+                continue
+            msg = candidate
+            headers = hdrs
+            break
+
+        if msg is None:
+            return err("유효한 이메일 없음 (우리자산운용 이메일만 존재)")
+
         email_date = _kst_date(headers.get("Date", ""))
 
         att = _find_attachment(msg["payload"].get("parts", []))
@@ -375,7 +389,7 @@ def _fetch_one(
 
         fname, att_id = att
         att_resp = service.users().messages().attachments().get(
-            userId="me", messageId=msgs[0]["id"], id=att_id
+            userId="me", messageId=msg["id"], id=att_id
         ).execute()
         df = _parse_attachment(base64.urlsafe_b64decode(att_resp["data"]), fname)
 
@@ -398,6 +412,12 @@ def _fetch_one(
             risk_grade = int(risk_raw) if risk_raw.isdigit() else None
             start     = (str(row.get(c["start"], "") or "").strip() or None) if c["start"] else None
             end_d     = (str(row.get(c["end"],   "") or "").strip() or None) if c["end"]   else None
+
+            # 판매가능 Y + 취급종료일 99991231인 상품만 수집
+            if not avail:
+                continue
+            if end_d and end_d.replace("-", "") != "99991231":
+                continue
 
             # ETF 여부: KSD 코드가 KR7로 시작
             is_etf = etf_code.startswith("KR7")
