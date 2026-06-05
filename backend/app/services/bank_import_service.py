@@ -27,16 +27,45 @@ class InstitutionConfig:
     key: str
     name: str
     query: str
-    # 펀드 매칭용 코드 컬럼 (K55/KR5 형식)
-    fund_code_col: str
-    # ETF 매칭용 코드 컬럼 (KR7 형식)
-    etf_code_col: str
-    name_col: str
-    date_col: str
-    avail_col: str
-    start_col: str
-    end_col: str
-    risk_col: str       # 위험등급 컬럼
+    # 각 필드마다 후보 컬럼명 목록 — 실제 파일에서 존재하는 첫 번째 사용
+    fund_code_cols: list[str]   # K55/KR5 펀드 코드
+    etf_code_cols: list[str]    # KR7 ETF 코드
+    name_cols: list[str]
+    date_cols: list[str]
+    avail_cols: list[str]
+    start_cols: list[str]
+    end_cols: list[str]
+    risk_cols: list[str]
+
+    def resolve(self, df: "pd.DataFrame") -> dict[str, str | None]:
+        """실제 DataFrame 컬럼과 매핑해 사용할 컬럼명 dict 반환."""
+        cols = set(df.columns)
+
+        def pick(candidates: list[str]) -> str | None:
+            for c in candidates:
+                if c in cols:
+                    return c
+            return None
+
+        resolved = {
+            "fund_code": pick(self.fund_code_cols),
+            "etf_code":  pick(self.etf_code_cols),
+            "name":      pick(self.name_cols),
+            "date":      pick(self.date_cols),
+            "avail":     pick(self.avail_cols),
+            "start":     pick(self.start_cols),
+            "end":       pick(self.end_cols),
+            "risk":      pick(self.risk_cols),
+        }
+
+        missing = [k for k, v in resolved.items() if v is None and k not in ("fund_code", "start", "end", "risk")]
+        if missing:
+            logger.warning(
+                "%s: 일부 컬럼 감지 실패 %s — 실제 컬럼: %s",
+                self.name, missing, sorted(cols),
+            )
+
+        return resolved
 
 
 INSTITUTIONS: list[InstitutionConfig] = [
@@ -44,41 +73,41 @@ INSTITUTIONS: list[InstitutionConfig] = [
         key="woori",
         name="우리은행",
         query="subject:우리은행 퇴직연금 상품목록 has:attachment",
-        fund_code_col="예탁원펀드코드",   # KRZ (펀드) — K55 매핑 없어 미매칭
-        etf_code_col="예탁원펀드코드",    # KR7 (ETF) — 동일 컬럼, prefix로 구분
-        name_col="상품한글명",
-        date_col="기준일자",
-        avail_col="상품판매가능여부",
-        start_col="취급시작일",
-        end_col="취급종료일",
-        risk_col="일임펀드위험구분코드",
+        fund_code_cols=["예탁원펀드코드", "rtpen_dpbd_fund_cd"],
+        etf_code_cols= ["예탁원펀드코드", "rtpen_dpbd_fund_cd"],
+        name_cols=     ["상품한글명", "pdt_knm"],
+        date_cols=     ["기준일자", "crdt"],
+        avail_cols=    ["상품판매가능여부", "sell_psblyn"],
+        start_cols=    ["취급시작일", "sell_strdt"],
+        end_cols=      ["취급종료일", "sell_edt"],
+        risk_cols=     ["일임펀드위험구분코드", "cmtg_fund_risk_dvcd"],
     ),
     InstitutionConfig(
         key="bnk_busan",
         name="BNK부산은행",
         query="subject:BNK 부산은행 퇴직연금 상품목록 has:attachment",
-        # [퀀팃투자자문] 발신 최신 메일은 경남은행과 동일한 한글 컬럼 포맷
-        fund_code_col="퇴직연금상품통합관리번호",
-        etf_code_col="예탁원펀드코드",
-        name_col="상품한글명",
-        date_col="기준일자",
-        avail_col="상품판매가능여부",
-        start_col="취급시작일",
-        end_col="취급종료일",
-        risk_col="일임펀드위험구분코드",
+        # 한글 포맷([퀀팃투자자문])과 영문 포맷(은행 직발) 모두 지원
+        fund_code_cols=["퇴직연금상품통합관리번호", "rtpen_kofia_fund_cd"],
+        etf_code_cols= ["예탁원펀드코드", "rtpen_dpbd_fund_cd"],
+        name_cols=     ["상품한글명", "pdt_knm"],
+        date_cols=     ["기준일자", "crdt"],
+        avail_cols=    ["상품판매가능여부", "sell_psblyn"],
+        start_cols=    ["취급시작일", "sell_strdt"],
+        end_cols=      ["취급종료일", "sell_edt"],
+        risk_cols=     ["일임펀드위험구분코드", "cmtg_fund_risk_dvcd"],
     ),
     InstitutionConfig(
         key="bnk_gyeongnam",
         name="BNK경남은행",
         query="subject:BNK 경남은행 퇴직연금 상품목록 has:attachment",
-        fund_code_col="퇴직연금상품통합관리번호",  # K55/KR5
-        etf_code_col="예탁원펀드코드",             # KR7
-        name_col="상품한글명",
-        date_col="기준일자",
-        avail_col="상품판매가능여부",
-        start_col="취급시작일",
-        end_col="취급종료일",
-        risk_col="일임펀드위험구분코드",
+        fund_code_cols=["퇴직연금상품통합관리번호", "rtpen_kofia_fund_cd"],
+        etf_code_cols= ["예탁원펀드코드", "rtpen_dpbd_fund_cd"],
+        name_cols=     ["상품한글명", "pdt_knm"],
+        date_cols=     ["기준일자", "crdt"],
+        avail_cols=    ["상품판매가능여부", "sell_psblyn"],
+        start_cols=    ["취급시작일", "sell_strdt"],
+        end_cols=      ["취급종료일", "sell_edt"],
+        risk_cols=     ["일임펀드위험구분코드", "cmtg_fund_risk_dvcd"],
     ),
 ]
 
@@ -241,18 +270,26 @@ def _fetch_one(
             userId="me", messageId=msgs[0]["id"], id=att_id
         ).execute()
         df = _parse_attachment(base64.urlsafe_b64decode(att_resp["data"]), fname)
-        file_date = str(df[cfg.date_col].iloc[0]).strip() if cfg.date_col in df.columns else None
+
+        # 컬럼 자동 감지
+        c = cfg.resolve(df)
+        if c["etf_code"] is None and c["fund_code"] is None:
+            return err(
+                f"필수 코드 컬럼 없음 — 실제 컬럼: {sorted(df.columns.tolist())}"
+            )
+
+        file_date = str(df[c["date"]].iloc[0]).strip() if c["date"] else None
 
         items: list[FundItem] = []
         for _, row in df.iterrows():
-            etf_code = str(row.get(cfg.etf_code_col, "") or "").strip()
-            fund_code = str(row.get(cfg.fund_code_col, "") or "").strip()
-            name = str(row.get(cfg.name_col, "") or "").strip()
-            avail = str(row.get(cfg.avail_col, "")).strip().upper() == "Y"
-            risk_raw = str(row.get(cfg.risk_col, "") or "").strip()
+            etf_code  = str(row.get(c["etf_code"],  "") or "").strip() if c["etf_code"]  else ""
+            fund_code = str(row.get(c["fund_code"],  "") or "").strip() if c["fund_code"] else ""
+            name      = str(row.get(c["name"],       "") or "").strip() if c["name"]      else ""
+            avail     = str(row.get(c["avail"],      "")).strip().upper() == "Y" if c["avail"] else True
+            risk_raw  = str(row.get(c["risk"],       "") or "").strip() if c["risk"]      else ""
             risk_grade = int(risk_raw) if risk_raw.isdigit() else None
-            start = str(row.get(cfg.start_col, "") or "").strip() or None
-            end_d = str(row.get(cfg.end_col, "") or "").strip() or None
+            start     = (str(row.get(c["start"], "") or "").strip() or None) if c["start"] else None
+            end_d     = (str(row.get(c["end"],   "") or "").strip() or None) if c["end"]   else None
 
             # ETF 여부: KSD 코드가 KR7로 시작
             is_etf = etf_code.startswith("KR7")
