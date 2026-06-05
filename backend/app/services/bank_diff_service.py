@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import base64
 import logging
+import re
 from dataclasses import dataclass, field
 from typing import Optional
 
@@ -115,25 +116,31 @@ def _df_to_map(df: pd.DataFrame, cfg: InstitutionConfig) -> dict[str, dict]:
     return result
 
 
+def _norm_name(s: str) -> str:
+    """이름 정규화: 공백 제거, 소문자, [] → () 통일 — 코드 전환 비교용."""
+    return re.sub(r'\s+', '', s).lower().replace('[', '(').replace(']', ')')
+
+
 def _diff_maps(
     yesterday: dict[str, dict],
     today: dict[str, dict],
 ) -> tuple[list[ProductChange], list[ProductChange], list[ProductChange]]:
-    """두 딕셔너리 비교 — 코드가 달라도 펀드명 동일하면 같은 상품으로 인식.
+    """두 딕셔너리 비교 — 코드가 달라도 정규화 펀드명 동일하면 같은 상품으로 인식.
 
     KRZ ↔ K55 코드 전환(경남은행 등)으로 동일 펀드가 신규·삭제로 오인되는 문제 방지.
+    공백·괄호 종류 차이도 정규화하여 이름 매칭 안정화.
     """
     same_code      = set(yesterday) & set(today)
     only_today     = set(today)     - set(yesterday)
     only_yesterday = set(yesterday) - set(today)
 
-    # 코드가 바뀐 쌍 탐지: 이름이 같으면 같은 펀드로 간주
-    y_by_name = {v["name"]: k for k, v in yesterday.items() if k in only_yesterday}
-    t_by_name = {v["name"]: k for k, v in today.items()     if k in only_today}
+    # 코드가 바뀐 쌍 탐지: 정규화 이름이 같으면 같은 펀드로 간주
+    y_by_name = {_norm_name(v["name"]): k for k, v in yesterday.items() if k in only_yesterday}
+    t_by_name = {_norm_name(v["name"]): k for k, v in today.items()     if k in only_today}
 
     code_swapped: list[tuple[str, str]] = []  # (y_code, t_code)
-    for name, t_code in t_by_name.items():
-        y_code = y_by_name.get(name)
+    for norm_name, t_code in t_by_name.items():
+        y_code = y_by_name.get(norm_name)
         if y_code:
             code_swapped.append((y_code, t_code))
 

@@ -26,9 +26,10 @@ const CSV_HEADERS = [
   'BNK부산_EMP', 'BNK부산_FOF', 'BNK경남_EMP', 'BNK경남_FOF',
 ]
 
-function csvCell(s: string): string {
-  if (s.includes(',') || s.includes('"') || s.includes('\n')) return `"${s.replace(/"/g, '""')}"`
-  return s
+function csvCell(s: string | null | undefined): string {
+  const str = s ?? ''
+  if (str.includes(',') || str.includes('"') || str.includes('\n')) return `"${str.replace(/"/g, '""')}"`
+  return str
 }
 
 function buildMasterCsv(institutions: InstitutionData[]): string {
@@ -51,9 +52,9 @@ function buildMasterCsv(institutions: InstitutionData[]): string {
         map.set(item.fund_code, {
           name: item.fund_name, code: item.fund_code, productType: item.product_type,
           riskGrade: item.risk_grade,
-          assetClass: item.asset_class,
-          region:     item.region,
-          sector:     item.sector,
+          assetClass: item.asset_class ?? '',
+          region:     item.region ?? '',
+          sector:     item.sector ?? '',
           woori:      inst.key === 'woori',
           busan:      inst.key === 'bnk_busan',
           gyeongnam:  inst.key === 'bnk_gyeongnam',
