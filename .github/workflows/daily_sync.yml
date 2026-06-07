@@ -70,9 +70,3 @@ asyncio.run(main())
           FSC_API_KEY: ${{ secrets.FSC_API_KEY }}
           SECRET_KEY: ${{ secrets.SECRET_KEY }}
 
-      - name: Step 4 - 은행 ETF 위험등급 업데이트
-        run: python scripts/update_etf_risk_from_bank.py
-        env:
-          DATABASE_URL: ${{ secrets.DATABASE_URL }}
-          SECRET_KEY: ${{ secrets.SECRET_KEY }}
-          GMAIL_TOKEN_PATH: token.json
