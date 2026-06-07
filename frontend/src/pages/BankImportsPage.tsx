@@ -281,15 +281,18 @@ function ProductTable({ inst }: { inst: InstitutionData }) {
         <div className="overflow-x-auto">
           <table className="table-base w-full" style={{ tableLayout: 'fixed' }}>
             <colgroup>
-              <col style={{ width: '55px' }} /><col style={{ width: '130px' }} />
-              <col style={{ width: 'auto' }} /><col style={{ width: '80px' }} />
-              <col style={{ width: '90px' }} /><col style={{ width: '90px' }} />
-              <col style={{ width: '60px' }} /><col style={{ width: '60px' }} />
+              <col style={{ width: '55px' }} />
+              <col style={{ width: '110px' }} />
+              <col style={{ width: '115px' }} />
+              <col style={{ width: 'auto' }} />
+              <col style={{ width: '80px' }} />
+              <col style={{ width: '85px' }} />
+              <col style={{ width: '60px' }} />
             </colgroup>
             <thead><tr>
               <th className="text-center">종류</th>
               <th>KRZ코드</th>
-              <th>K55코드 (펀드조회)</th>
+              <th>K55코드</th>
               <th>상품명</th>
               <th className="text-center">위험등급</th>
               <th className="text-center">취급시작</th>
