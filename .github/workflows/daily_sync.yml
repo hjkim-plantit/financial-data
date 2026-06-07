@@ -2,8 +2,8 @@ name: Daily Fund Sync
 
 on:
   schedule:
-    - cron: '0 21 * * *'   # 매일 06:00 KST (UTC+9)
-  workflow_dispatch:         # 수동 실행 버튼
+    - cron: '0 21 * * *'
+  workflow_dispatch:
 
 jobs:
   sync:
@@ -39,34 +39,9 @@ jobs:
           SECRET_KEY: ${{ secrets.SECRET_KEY }}
 
       - name: Step 2 - ETF 동기화
-        run: python -c "
-import asyncio, sys
-sys.path.insert(0, '.')
-from app.core.config import settings
-from app.database import AsyncSessionLocal, init_db
-from app.services.etf_sync import sync_etf_funds
-from app.services.redash_client import RedashClient
-
-async def main():
-    await init_db()
-    redash = RedashClient(base_url=settings.redash_url, api_key=settings.redash_api_key)
-    async with AsyncSessionLocal() as db:
-        stats = await sync_etf_funds(db, redash)
-    print('ETF:', stats)
-
-asyncio.run(main())
-"
+        run: python scripts/sync_etf.py
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
           REDASH_URL: ${{ secrets.REDASH_URL }}
           REDASH_API_KEY: ${{ secrets.REDASH_API_KEY }}
           SECRET_KEY: ${{ secrets.SECRET_KEY }}
-
-      - name: Step 3 - KOFIA 한글명 업데이트 (매주 일요일만)
-        if: github.event_name == 'workflow_dispatch' || (github.event_name == 'schedule' && contains(fromJson('["0","6"]'), format('{0}', github.event.schedule))  )
-        run: python scripts/update_fund_names_kr.py
-        env:
-          DATABASE_URL: ${{ secrets.DATABASE_URL }}
-          FSC_API_KEY: ${{ secrets.FSC_API_KEY }}
-          SECRET_KEY: ${{ secrets.SECRET_KEY }}
-
