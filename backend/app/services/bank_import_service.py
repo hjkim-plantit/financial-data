@@ -2,7 +2,7 @@
 
 코드 체계:
   - KR7... (KSD ISIN) → ETF  ← DB의 KR7 ISIN과 직접 매칭
-  - KRZ... (KSD)      → 펀드 (KRZ↔K55 매핑 없음 → 우리은행 펀드 미매칭)
+  - KRZ... (KSD)      → 펀드 (woori_fund_checked.csv KRZ→K55 매핑으로 DB 조회)
   - K55... / KR5...   → 펀드 KOFIA 코드 ← DB의 K55 코드와 직접 매칭
 """
 
@@ -12,6 +12,7 @@ import base64
 import io
 import logging
 import os
+import pathlib
 import re
 from dataclasses import dataclass, field
 from typing import Optional
@@ -23,33 +24,44 @@ logger = logging.getLogger(__name__)
 
 # ── 종목 마스터 분류 ───────────────────────────────────────────
 
-# internal_category_id → 자산군 (허용값만)
+# internal_category_id → 자산군
 _CAT_TO_ASSET: dict[int, str] = {
     1:  "주식",
     2:  "채권",
-    4:  "대체투자-부동산",
-    5:  "대체투자-인프라",
-    6:  "대체투자-통화/외환",
-    8:  "대체투자-원자재-금속",
-    9:  "대체투자-원자재-에너지",
-    10: "대체투자-원자재-농산물",
-    11: "대체투자-원자재-기타",
+    4:  "부동산",
+    5:  "인프라",
+    6:  "통화",
+    8:  "원자재",
+    9:  "원자재",
+    10: "원자재",
+    11: "원자재",
 }
 
 # 펀드명 키워드 → 자산군 (DB 미매칭 시 폴백)
 _ASSET_PATTERNS: list[tuple[str, str]] = [
+    # 부동산·리츠 — 채권보다 앞에 배치 ("리츠부동산인프라채권" 등 혼합명 처리)
+    (r"부동산|리츠|reit|리얼티|realty", "부동산"),
+    # 인프라
+    (r"인프라|infrastructure", "인프라"),
+    # 채권
     (r"채권|국채|회사채|국공채|bond|fixed.?income|mmf|money.?market|단기금융|머니마켓", "채권"),
-    (r"부동산|리츠|reit", "대체투자-부동산"),
-    (r"인프라|infrastructure", "대체투자-인프라"),
-    (r"통화|외환|currency|forex", "대체투자-통화/외환"),
-    (r"원유|wti|브렌트|brent|crude|천연가스|natural.?gas", "대체투자-원자재-에너지"),
-    (r"금\b|은\b|gold|silver|귀금속|copper|구리|metal|platinum", "대체투자-원자재-금속"),
-    (r"농산물|agri|grain|corn|wheat|soybean", "대체투자-원자재-농산물"),
-    (r"원자재|commodity|commodities", "대체투자-원자재-기타"),
+    # 통화 — 달러/엔 등 통화선물 명시 (달러채권 등 오분류 방지)
+    (r"달러선물|달러인버스|엔선물|위안선물|통화|외환|currency|forex", "통화"),
+    # 에너지 원자재
+    (r"원유|wti|브렌트|brent|crude|천연가스|natural.?gas|오일", "원자재"),
+    # 귀금속·금속 — 금\b/은\b 한글 단어경계 미작동 문제 → 구체적 복합어 패턴으로 대체
+    (r"골드|gold|silver|귀금속|copper|구리|metal|platinum|팔라듐|palladium"
+     r"|금선물|금현물|금액티브|금커버드콜|금은|국제금|KRX금"
+     r"|은선물|은액티브", "원자재"),
+    # 농산물 원자재
+    (r"농산물|agri|grain|corn|wheat|soybean|콩|옥수수|대두", "원자재"),
+    # 기타 원자재
+    (r"원자재|commodity|commodities", "원자재"),
 ]
 
 # 펀드명 키워드 → 지역 (우선순위 순)
 _REGION_PATTERNS: list[tuple[str, str]] = [
+    (r"tdf|target.?date|글로벌자산배분|글로벌 자산배분|multi.?asset", "글로벌"),
     (r"미국|s&p|sp500|nasdaq|나스닥|다우|dow|russell|뉴욕|us\s", "선진국-미국"),
     (r"일본|japan|nikkei|니케이|topix", "선진국-일본"),
     (r"영국|uk\s|ftse|런던", "선진국-영국"),
@@ -84,6 +96,45 @@ _SECTOR_PATTERNS: list[tuple[str, str]] = [
 ]
 
 
+# ── KRZ→K55 매핑 (woori_fund_checked.csv) ────────────────────
+
+_WOORI_CHECKED_CSV = (
+    pathlib.Path(__file__).resolve()
+    .parent.parent.parent.parent  # 2.FinancialData/
+    / "woori_fund_checked.csv"
+)
+
+
+def _load_krz_to_k55() -> dict[str, str]:
+    """woori_fund_checked.csv에서 KRZ코드 → 협회표준코드(K55/KR5) 매핑 로드."""
+    mapping: dict[str, str] = {}
+    if not _WOORI_CHECKED_CSV.exists():
+        logger.warning("woori_fund_checked.csv 없음: %s", _WOORI_CHECKED_CSV)
+        return mapping
+    try:
+        df = None
+        for enc in ("utf-8-sig", "utf-8", "cp949"):
+            try:
+                df = pd.read_csv(_WOORI_CHECKED_CSV, encoding=enc, dtype=str)
+                break
+            except UnicodeDecodeError:
+                continue
+        if df is None:
+            return mapping
+        for _, row in df.iterrows():
+            krz = str(row.get("코드") or "").strip()
+            k55 = str(row.get("협회표준코드") or "").strip()
+            if krz.startswith("KRZ") and k55 and k55.lower() not in ("nan", ""):
+                mapping[krz] = k55
+        logger.info("KRZ→K55 매핑 로드: %d건", len(mapping))
+    except Exception as e:
+        logger.warning("KRZ→K55 매핑 로드 실패: %s", e)
+    return mapping
+
+
+_KRZ_TO_K55: dict[str, str] = _load_krz_to_k55()
+
+
 def _classify_asset_class(name: str, category_id: Optional[int]) -> str:
     if category_id and category_id in _CAT_TO_ASSET:
         return _CAT_TO_ASSET[category_id]
@@ -111,6 +162,7 @@ def _classify_sector(name: str) -> str:
     return "해당없음"
 
 
+
 # ── 기관별 설정 ────────────────────────────────────────────────
 
 @dataclass
@@ -119,14 +171,15 @@ class InstitutionConfig:
     name: str
     query: str
     # 각 필드마다 후보 컬럼명 목록 — 실제 파일에서 존재하는 첫 번째 사용
-    fund_code_cols: list[str]   # K55/KR5 펀드 코드
-    etf_code_cols: list[str]    # KR7 ETF 코드
+    fund_code_cols: list[str]    # KRZ 예탁원 코드 (display용)
+    etf_code_cols: list[str]     # KR7 ETF 코드
     name_cols: list[str]
     date_cols: list[str]
     avail_cols: list[str]
     start_cols: list[str]
     end_cols: list[str]
     risk_cols: list[str]
+    k55_code_cols: list[str] = field(default_factory=list)  # K55/KR5 KOFIA 코드 (DB 매칭용)
 
     def resolve(self, df: "pd.DataFrame") -> dict[str, str | None]:
         """실제 DataFrame 컬럼과 매핑해 사용할 컬럼명 dict 반환."""
@@ -147,9 +200,10 @@ class InstitutionConfig:
             "start":     pick(self.start_cols),
             "end":       pick(self.end_cols),
             "risk":      pick(self.risk_cols),
+            "k55_code":  pick(self.k55_code_cols),
         }
 
-        missing = [k for k, v in resolved.items() if v is None and k not in ("fund_code", "start", "end", "risk")]
+        missing = [k for k, v in resolved.items() if v is None and k not in ("fund_code", "start", "end", "risk", "k55_code")]
         if missing:
             logger.warning(
                 "%s: 일부 컬럼 감지 실패 %s — 실제 컬럼: %s",
@@ -178,7 +232,7 @@ INSTITUTIONS: list[InstitutionConfig] = [
         name="BNK부산은행",
         # [우리자산운용] 이메일 제외, 예탁원 코드 기준
         query='"BNK 부산은행 퇴직연금 상품목록" -"우리자산운용" has:attachment',
-        fund_code_cols=["예탁원펀드코드", "rtpen_dpbd_fund_cd"],  # KRZ 기준
+        fund_code_cols=["예탁원펀드코드", "rtpen_dpbd_fund_cd"],
         etf_code_cols= ["예탁원펀드코드", "rtpen_dpbd_fund_cd"],
         name_cols=     ["상품한글명", "pdt_knm"],
         date_cols=     ["기준일자", "crdt"],
@@ -186,13 +240,14 @@ INSTITUTIONS: list[InstitutionConfig] = [
         start_cols=    ["취급시작일", "sell_strdt"],
         end_cols=      ["취급종료일", "sell_edt"],
         risk_cols=     ["일임펀드위험구분코드", "cmtg_fund_risk_dvcd"],
+        k55_code_cols= ["퇴직연금상품통합관리번호", "퇴직연금상품통합관리"],
     ),
     InstitutionConfig(
         key="bnk_gyeongnam",
         name="BNK경남은행",
         # [우리자산운용] 이메일 제외, 예탁원 코드 기준
         query='"BNK 경남은행 퇴직연금 상품목록" -"우리자산운용" has:attachment',
-        fund_code_cols=["예탁원펀드코드", "rtpen_dpbd_fund_cd"],  # KRZ 기준
+        fund_code_cols=["예탁원펀드코드", "rtpen_dpbd_fund_cd"],
         etf_code_cols= ["예탁원펀드코드", "rtpen_dpbd_fund_cd"],
         name_cols=     ["상품한글명", "pdt_knm"],
         date_cols=     ["기준일자", "crdt"],
@@ -200,6 +255,7 @@ INSTITUTIONS: list[InstitutionConfig] = [
         start_cols=    ["취급시작일", "sell_strdt"],
         end_cols=      ["취급종료일", "sell_edt"],
         risk_cols=     ["일임펀드위험구분코드", "cmtg_fund_risk_dvcd"],
+        k55_code_cols= ["퇴직연금상품통합관리번호", "퇴직연금상품통합관리"],
     ),
 ]
 
@@ -408,10 +464,10 @@ def _fetch_one(
             fund_code = str(row.get(c["fund_code"],  "") or "").strip() if c["fund_code"] else ""
             name      = str(row.get(c["name"],       "") or "").strip() if c["name"]      else ""
             avail     = str(row.get(c["avail"],      "")).strip().upper() == "Y" if c["avail"] else True
-            risk_raw  = str(row.get(c["risk"],       "") or "").strip() if c["risk"]      else ""
-            risk_grade = int(risk_raw) if risk_raw.isdigit() else None
             start     = (str(row.get(c["start"], "") or "").strip() or None) if c["start"] else None
             end_d     = (str(row.get(c["end"],   "") or "").strip() or None) if c["end"]   else None
+            # 이메일 직접 제공 K55 코드 (BNK: 퇴직연금상품통합관리번호)
+            row_k55   = str(row.get(c["k55_code"], "") or "").strip() if c.get("k55_code") else ""
 
             # 판매가능 Y + 취급종료일 99991231인 상품만 수집
             if not avail:
@@ -426,6 +482,7 @@ def _fetch_one(
                 code = etf_code
                 product_type = "etf"
                 matched = code in db_etfs
+                k55_code = None
             else:
                 # KRZ(예탁원) 우선 → K55(KOFIA) 폴백
                 if etf_code.startswith("KRZ"):
@@ -436,18 +493,34 @@ def _fetch_one(
                     code = etf_code
                 product_type = "fund"
                 matched = code in db_funds
+                if not matched and code.startswith("KRZ"):
+                    # 1순위: 이메일 직접 제공 K55 (BNK 퇴직연금상품통합관리번호)
+                    # 2순위: woori_fund_checked.csv 매핑
+                    k55_code = (row_k55 if row_k55 and not row_k55.startswith("KRZ")
+                                else _KRZ_TO_K55.get(code))
+                    if k55_code:
+                        matched = k55_code in db_funds
+                else:
+                    k55_code = row_k55 if row_k55 and not row_k55.startswith("KRZ") else None
 
             if not code or code == "nan":
                 continue
 
-            meta = db_meta.get(code, {})
+            # KRZ코드면 K55 코드로 DB 메타 조회 (KRZ는 DB에 없음)
+            lookup_code = k55_code if (k55_code and k55_code in db_meta) else code
+            meta = db_meta.get(lookup_code, {})
+            asset_cls = _classify_asset_class(name, meta.get("category_id"))
+
+            # 위험등급: DB값 우선, 없으면 공란 (이메일의 일임펀드위험구분코드는 사용 안 함)
+            risk_grade = meta.get("risk_grade")
+
             items.append(FundItem(
                 fund_code=code, fund_name=name,
                 product_type=product_type,
                 available=avail, risk_grade=risk_grade,
                 start_date=start, end_date=end_d,
                 matched=matched,
-                asset_class=_classify_asset_class(name, meta.get("category_id")),
+                asset_class=asset_cls,
                 region=_classify_region(name, meta.get("region")),
                 sector=_classify_sector(name),
             ))

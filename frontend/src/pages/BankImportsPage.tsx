@@ -32,6 +32,9 @@ function csvCell(s: string | null | undefined): string {
   return str
 }
 
+// 레버리지/인버스 ETF 제외 패턴
+const LEVERAGE_INVERSE_RE = /레버리지|인버스|2X|2배|3X|3배|곱버전|200%|300%|short|bear/i
+
 function buildMasterCsv(institutions: InstitutionData[]): string {
   const map = new Map<string, {
     name: string; code: string; productType: string
@@ -43,6 +46,8 @@ function buildMasterCsv(institutions: InstitutionData[]): string {
   for (const inst of institutions) {
     for (const item of inst.items) {
       if (!item.available) continue
+      // ETF 레버리지/인버스 제외
+      if (item.product_type === 'etf' && LEVERAGE_INVERSE_RE.test(item.fund_name)) continue
       const existing = map.get(item.fund_code)
       if (existing) {
         if (inst.key === 'woori')           existing.woori = true
@@ -175,6 +180,11 @@ function SummaryCard({ instKey, name, selected, onClick, latest, diff }: {
         <div>
           <p className="font-semibold text-slate-800">{name}</p>
           <p className="text-xs text-slate-400 mt-0.5">수신일 {latest?.email_date ?? '—'}</p>
+          {diff && (diff.yesterday_date || diff.today_date) && (
+            <p className="text-xs text-slate-300 mt-0.5">
+              비교 {diff.yesterday_date ?? '—'} → {diff.today_date ?? '—'}
+            </p>
+          )}
         </div>
         <div className="flex flex-col items-end gap-1">
           <span className="text-xs bg-slate-100 text-slate-500 px-2 py-0.5 rounded">
@@ -549,12 +559,7 @@ export default function BankImportsPage() {
 
           {/* 상세 테이블 */}
           {viewTab === 'products' && selectedLatest && (
-            <div>
-              {selectedLatest.key === 'woori' && (
-                <p className="text-xs text-amber-500 mb-3">※ 우리은행 펀드는 KSD(KRZ) 코드 사용 — K55 매핑 없어 미매칭</p>
-              )}
-              <ProductTable inst={selectedLatest} />
-            </div>
+            <ProductTable inst={selectedLatest} />
           )}
           {viewTab === 'diff' && selectedDiff && (
             <DiffTable diff={selectedDiff} />

@@ -90,12 +90,12 @@ async def get_diff():
 async def get_latest(db: AsyncSession = Depends(get_db)):
     """3개 기관의 가장 최근 이메일을 파싱해 펀드/ETF로 분리하여 DB와 크로스체크한다."""
     result = await db.execute(
-        text("SELECT fund_code, product_type, internal_category_id, investment_region FROM funds")
+        text("SELECT fund_code, product_type, internal_category_id, investment_region, risk_grade FROM funds")
     )
     rows = result.fetchall()
     db_funds = {r[0] for r in rows if r[1] == "fund"}
     db_etfs  = {r[0] for r in rows if r[1] == "etf"}
-    db_meta  = {r[0]: {"category_id": r[2], "region": r[3]} for r in rows}
+    db_meta  = {r[0]: {"category_id": r[2], "region": r[3], "risk_grade": r[4]} for r in rows}
 
     data = fetch_all(db_funds, db_etfs, db_meta)
     return [
