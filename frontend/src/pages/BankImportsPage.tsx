@@ -37,7 +37,7 @@ const LEVERAGE_INVERSE_RE = /레버리지|인버스|2X|2배|3X|3배|곱버전|20
 
 function buildMasterCsv(institutions: InstitutionData[]): string {
   const map = new Map<string, {
-    name: string; code: string; productType: string
+    name: string; code: string; k55Code: string | null; productType: string
     riskGrade: number | null
     assetClass: string; region: string; sector: string
     woori: boolean; busan: boolean; gyeongnam: boolean
@@ -55,7 +55,8 @@ function buildMasterCsv(institutions: InstitutionData[]): string {
         if (inst.key === 'bnk_gyeongnam')   existing.gyeongnam = true
       } else {
         map.set(item.fund_code, {
-          name: item.fund_name, code: item.fund_code, productType: item.product_type,
+          name: item.fund_name, code: item.fund_code, k55Code: item.k55_code ?? null,
+          productType: item.product_type,
           riskGrade: item.risk_grade,
           assetClass: item.asset_class ?? '',
           region:     item.region ?? '',
@@ -74,9 +75,11 @@ function buildMasterCsv(institutions: InstitutionData[]): string {
   for (const p of map.values()) {
     const isEtf   = p.productType === 'etf'
     const isBond  = p.assetClass === '채권'
-    const code    = p.code
-    const shortCode = (code.startsWith('KR7') || code.startsWith('KRZ')) ? code.slice(3, 9) : code
-    const isin      = (code.startsWith('KR7') || code.startsWith('KRZ')) ? code : ''
+    // 펀드조회 기준 코드: K55 우선, 없으면 KRZ, ETF는 KR7
+    const baseCode  = p.k55Code ?? p.code
+    // KR7/KRZ/K55/KR5 모두 앞 3자리는 코드 분류자 → chars 3-9이 실질 코드
+    const shortCode = /^(KR[75Z]|K[R5]5)/.test(baseCode) ? baseCode.slice(3, 9) : baseCode
+    const isin      = isEtf ? p.code : (p.k55Code ?? p.code)
     const riskLabel = p.riskGrade ? (RISK_LABEL[p.riskGrade] ?? '') : ''
 
     rows.push([
@@ -284,28 +287,35 @@ function ProductTable({ inst }: { inst: InstitutionData }) {
               <col style={{ width: '60px' }} /><col style={{ width: '60px' }} />
             </colgroup>
             <thead><tr>
-              <th className="text-center">종류</th><th>코드</th><th>상품명</th>
-              <th className="text-center">위험등급</th><th className="text-center">취급시작</th>
-              <th className="text-center">취급종료</th><th className="text-center">판매</th><th className="text-center">매칭</th>
+              <th className="text-center">종류</th>
+              <th>KRZ코드</th>
+              <th>K55코드 (펀드조회)</th>
+              <th>상품명</th>
+              <th className="text-center">위험등급</th>
+              <th className="text-center">취급시작</th>
+              <th className="text-center">매칭</th>
             </tr></thead>
             <tbody>
               {rows.length === 0
-                ? <tr><td colSpan={8} className="py-10 text-center text-slate-400">결과 없음</td></tr>
+                ? <tr><td colSpan={7} className="py-10 text-center text-slate-400">결과 없음</td></tr>
                 : rows.map((item: FundItem) => (
                   <tr key={item.fund_code} className={clsx(!item.matched && 'bg-orange-50/40')}>
                     <td className="text-center"><TypeBadge type={item.product_type} /></td>
-                    <td className="font-mono text-xs text-slate-500 truncate">{item.fund_code}</td>
+                    <td className="font-mono text-xs text-slate-400 truncate">{item.fund_code}</td>
+                    <td className="font-mono text-xs text-slate-700 truncate">
+                      {item.k55_code
+                        ? <span className="text-blue-600">{item.k55_code}</span>
+                        : <span className="text-slate-300">—</span>}
+                    </td>
                     <td className="text-sm truncate" title={item.fund_name}>{item.fund_name}</td>
                     <td className="text-center"><RiskBadge grade={item.risk_grade} /></td>
                     <td className="text-center text-xs text-slate-500">{formatDate(item.start_date)}</td>
-                    <td className="text-center text-xs text-slate-500">{item.end_date === '99991231' ? '∞' : formatDate(item.end_date)}</td>
                     <td className="text-center">
-                      <span className={clsx('text-xs px-1 py-0.5 rounded font-medium', item.available ? 'bg-green-50 text-green-600' : 'bg-slate-100 text-slate-400')}>
-                        {item.available ? 'Y' : 'N'}
-                      </span>
-                    </td>
-                    <td className="text-center">
-                      {item.matched ? <span className="text-green-500 text-sm">✓</span> : <span className="text-orange-400 text-xs">미매칭</span>}
+                      {item.matched
+                        ? <span className="text-green-500 text-sm">✓</span>
+                        : item.k55_code
+                          ? <span className="text-amber-500 text-xs">DB없음</span>
+                          : <span className="text-orange-400 text-xs">미매칭</span>}
                     </td>
                   </tr>
                 ))

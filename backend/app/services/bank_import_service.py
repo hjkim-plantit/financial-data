@@ -264,17 +264,18 @@ INSTITUTIONS: list[InstitutionConfig] = [
 
 @dataclass
 class FundItem:
-    fund_code: str
+    fund_code: str           # KRZ 예탁원 코드 (은행 원본)
     fund_name: str
-    product_type: str       # 'fund' | 'etf' | 'unknown'
+    product_type: str        # 'fund' | 'etf' | 'unknown'
     available: bool
     risk_grade: Optional[int]
     start_date: Optional[str]
     end_date: Optional[str]
     matched: bool
-    asset_class: str = ""   # 자산군
-    region: str = ""        # 지역
-    sector: str = ""        # 섹터
+    k55_code: Optional[str] = None  # K55/KR5 KOFIA 코드 (펀드조회 기준)
+    asset_class: str = ""    # 자산군
+    region: str = ""         # 지역
+    sector: str = ""         # 섹터
 
 
 @dataclass
@@ -520,6 +521,7 @@ def _fetch_one(
                 available=avail, risk_grade=risk_grade,
                 start_date=start, end_date=end_d,
                 matched=matched,
+                k55_code=k55_code,
                 asset_class=asset_cls,
                 region=_classify_region(name, meta.get("region")),
                 sector=_classify_sector(name),

@@ -1,7 +1,7 @@
 import client from './client'
 
 export interface FundItem {
-  fund_code: string
+  fund_code: string       // KRZ 예탁원 코드 (은행 원본)
   fund_name: string
   product_type: string
   available: boolean
@@ -9,6 +9,7 @@ export interface FundItem {
   start_date: string | null
   end_date: string | null
   matched: boolean
+  k55_code: string | null // K55/KR5 KOFIA 코드 (펀드조회 기준)
   asset_class: string
   region: string
   sector: string
