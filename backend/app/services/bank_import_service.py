@@ -459,16 +459,22 @@ def _fetch_one(
 
         file_date = str(df[c["date"]].iloc[0]).strip() if c["date"] else None
 
+        def _s(col: str | None) -> str:
+            """pandas NaN·None → 빈 문자열로 정규화."""
+            if col is None:
+                return ""
+            v = str(row.get(col, "") or "").strip()
+            return "" if v.lower() == "nan" else v
+
         items: list[FundItem] = []
         for _, row in df.iterrows():
-            etf_code  = str(row.get(c["etf_code"],  "") or "").strip() if c["etf_code"]  else ""
-            fund_code = str(row.get(c["fund_code"],  "") or "").strip() if c["fund_code"] else ""
-            name      = str(row.get(c["name"],       "") or "").strip() if c["name"]      else ""
-            avail     = str(row.get(c["avail"],      "")).strip().upper() == "Y" if c["avail"] else True
-            start     = (str(row.get(c["start"], "") or "").strip() or None) if c["start"] else None
-            end_d     = (str(row.get(c["end"],   "") or "").strip() or None) if c["end"]   else None
-            # 이메일 직접 제공 K55 코드 (BNK: 퇴직연금상품통합관리번호)
-            row_k55   = str(row.get(c["k55_code"], "") or "").strip() if c.get("k55_code") else ""
+            etf_code  = _s(c["etf_code"])
+            fund_code = _s(c["fund_code"])
+            name      = _s(c["name"])
+            avail     = _s(c["avail"]).upper() == "Y" if c["avail"] else True
+            start     = _s(c["start"]) or None
+            end_d     = _s(c["end"]) or None
+            row_k55   = _s(c.get("k55_code"))
 
             # 판매가능 Y + 취급종료일 99991231인 상품만 수집
             if not avail:

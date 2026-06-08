@@ -88,16 +88,23 @@ def _parse_email(service, msg_id: str, cfg: InstitutionConfig) -> Optional[pd.Da
 
 def _df_to_map(df: pd.DataFrame, cfg: InstitutionConfig) -> dict[str, dict]:
     """DataFrame → {fund_code: {field_key: value, ...}} 딕셔너리."""
+    from app.services.bank_import_service import _KRZ_TO_K55
+
     c = cfg.resolve(df)
     result: dict[str, dict] = {}
 
-    for _, row in df.iterrows():
-        etf_code  = str(row.get(c["etf_code"],  "") or "").strip() if c["etf_code"]  else ""
-        fund_code = str(row.get(c["fund_code"],  "") or "").strip() if c["fund_code"] else ""
-        name      = str(row.get(c["name"],       "") or "").strip() if c["name"]      else ""
+    def _s(col: str | None) -> str:
+        if col is None:
+            return ""
+        v = str(row.get(col, "") or "").strip()
+        return "" if v.lower() == "nan" else v
 
-        avail_str = str(row.get(c["avail"], "") or "").strip().upper() if c["avail"] else "Y"
-        end_str   = str(row.get(c["end"],   "") or "").strip()        if c["end"]   else "99991231"
+    for _, row in df.iterrows():
+        etf_code  = _s(c["etf_code"])
+        fund_code = _s(c["fund_code"])
+        name      = _s(c["name"])
+        avail_str = _s(c["avail"]).upper() if c["avail"] else "Y"
+        end_str   = _s(c["end"]) if c["end"] else "99991231"
 
         # 판매가능 Y + 취급종료일 99991231인 상품만 비교 대상에 포함
         if avail_str != "Y":
@@ -105,25 +112,27 @@ def _df_to_map(df: pd.DataFrame, cfg: InstitutionConfig) -> dict[str, dict]:
         if end_str and end_str.replace("-", "") != "99991231":
             continue
 
-        is_etf = etf_code.startswith("KR7")
-        if is_etf:
-            code = etf_code
-        elif etf_code.startswith("KRZ"):
-            code = etf_code   # KRZ(예탁원) 우선
-        elif fund_code:
-            code = fund_code  # K55(KOFIA) 폴백
-        else:
-            code = etf_code
-        if not code or code == "nan":
+        krz = etf_code or fund_code
+        if not krz:
             continue
+
+        is_etf = krz.startswith("KR7")
+        if is_etf:
+            code = krz
+        else:
+            # 펀드: import 서비스와 동일하게 K55 우선 사용
+            row_k55 = _s(c.get("k55_code"))
+            k55 = (row_k55 if row_k55 and not row_k55.startswith("KRZ")
+                   else _KRZ_TO_K55.get(krz))
+            code = k55 if k55 else krz
 
         result[code] = {
             "name":         name,
             "product_type": "etf" if is_etf else "fund",
-            "avail":  str(row.get(c["avail"], "") or "").strip() if c["avail"]  else "",
-            "risk":   str(row.get(c["risk"],  "") or "").strip() if c["risk"]   else "",
-            "end":    str(row.get(c["end"],   "") or "").strip() if c["end"]    else "",
-            "start":  str(row.get(c["start"], "") or "").strip() if c["start"]  else "",
+            "avail":  _s(c["avail"]),
+            "risk":   _s(c["risk"]),
+            "end":    _s(c["end"]),
+            "start":  _s(c["start"]),
         }
     return result
 
