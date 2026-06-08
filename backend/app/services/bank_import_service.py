@@ -100,8 +100,8 @@ _SECTOR_PATTERNS: list[tuple[str, str]] = [
 
 _WOORI_CHECKED_CSV = (
     pathlib.Path(__file__).resolve()
-    .parent.parent.parent.parent  # 2.FinancialData/
-    / "woori_fund_checked.csv"
+    .parent.parent.parent  # backend/
+    / "data" / "woori_fund_checked.csv"
 )
 
 

@@ -7,6 +7,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 COPY app/ app/
 COPY scripts/ scripts/
+COPY data/ data/
 
 # GMAIL_TOKEN_JSON 환경변수(JSON 문자열)가 있으면 시작 시 token.json으로 저장
 CMD ["sh", "-c", "\
