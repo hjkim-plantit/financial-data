@@ -60,6 +60,7 @@ export interface FundListParams {
   category_id?: number
   status?: string
   product_type?: string
+  risk_grade?: number
   page?: number
   page_size?: number
 }

@@ -23,6 +23,7 @@ async def list_funds(
     management_company: str | None = Query(None),
     status: str = Query("운용중", description="운용중 | 판매중단 | 설정취소 | 만기상환 | all"),
     product_type: str = Query("all", description="fund | etf | all"),
+    risk_grade: int | None = Query(None, description="위험등급 1-6"),
     search: str | None = Query(None, description="펀드명 검색"),
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=100),
@@ -35,6 +36,7 @@ async def list_funds(
     where = f"""
         WHERE {status_clause}
           AND {ptype_clause}
+          AND (:risk_grade IS NULL OR f.risk_grade = :risk_grade)
           AND (:company IS NULL OR f.management_company LIKE '%' || :company || '%')
           AND (:search  IS NULL OR f.fund_name LIKE '%' || :search || '%')
           AND (:cat_id  IS NULL OR c.id = :cat_id OR c.parent_id = :cat_id
@@ -43,6 +45,7 @@ async def list_funds(
     params = {
         "status": status,
         "product_type": product_type,
+        "risk_grade": risk_grade,
         "company": management_company,
         "search": search,
         "cat_id": category_id,

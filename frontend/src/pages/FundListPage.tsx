@@ -52,6 +52,16 @@ const PRODUCT_TABS = [
   { value: 'etf', label: 'ETF' },
 ]
 
+const RISK_TABS = [
+  { value: null,  label: '전체', active: 'bg-slate-700 text-white' },
+  { value: 1, label: '1등급', active: 'bg-red-500 text-white' },
+  { value: 2, label: '2등급', active: 'bg-orange-500 text-white' },
+  { value: 3, label: '3등급', active: 'bg-amber-500 text-white' },
+  { value: 4, label: '4등급', active: 'bg-yellow-500 text-white' },
+  { value: 5, label: '5등급', active: 'bg-green-500 text-white' },
+  { value: 6, label: '6등급', active: 'bg-emerald-500 text-white' },
+]
+
 // ── 메인 컴포넌트 ──────────────────────────────────────────────
 
 export default function FundListPage() {
@@ -59,16 +69,18 @@ export default function FundListPage() {
   const [categoryId, setCategoryId] = useState<number | null>(null)
   const [status, setStatus] = useState('운용중')
   const [productType, setProductType] = useState('all')
+  const [riskGrade, setRiskGrade] = useState<number | null>(null)
   const [page, setPage] = useState(1)
   const pageSize = 20
 
   const { data, isLoading, isError, error } = useQuery({
-    queryKey: ['funds', { search, categoryId, status, productType, page, pageSize }],
+    queryKey: ['funds', { search, categoryId, status, productType, riskGrade, page, pageSize }],
     queryFn: () => getFunds({
       search: search || undefined,
       category_id: categoryId ?? undefined,
       status,
       product_type: productType,
+      risk_grade: riskGrade ?? undefined,
       page,
       page_size: pageSize,
     }),
@@ -89,6 +101,10 @@ export default function FundListPage() {
 
   const handleProductType = useCallback((val: string) => {
     setProductType(val); setPage(1)
+  }, [])
+
+  const handleRiskGrade = useCallback((val: number | null) => {
+    setRiskGrade(val); setPage(1)
   }, [])
 
   const funds: FundListItem[] = data?.items ?? []
@@ -129,7 +145,7 @@ export default function FundListPage() {
           <CategoryFilter selectedId={categoryId} onChange={handleCategoryChange} />
         </div>
 
-        {/* 종류 + 상태 탭 */}
+        {/* 종류 + 상태 + 위험등급 탭 */}
         <div className="flex items-center gap-4 flex-wrap">
           <div className="flex items-center gap-1">
             <p className="text-xs text-slate-500 font-medium mr-2">종류</p>
@@ -158,6 +174,23 @@ export default function FundListPage() {
                   'px-3 py-1 rounded-full text-xs font-medium transition-colors',
                   status === tab.value
                     ? 'bg-blue-500 text-white'
+                    : 'bg-slate-100 text-slate-600 hover:bg-slate-200',
+                )}
+              >
+                {tab.label}
+              </button>
+            ))}
+          </div>
+          <div className="flex items-center gap-1">
+            <p className="text-xs text-slate-500 font-medium mr-2">위험등급</p>
+            {RISK_TABS.map((tab) => (
+              <button
+                key={tab.value ?? 'all'}
+                onClick={() => handleRiskGrade(tab.value)}
+                className={clsx(
+                  'px-3 py-1 rounded-full text-xs font-medium transition-colors',
+                  riskGrade === tab.value
+                    ? tab.active
                     : 'bg-slate-100 text-slate-600 hover:bg-slate-200',
                 )}
               >
