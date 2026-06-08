@@ -436,14 +436,16 @@ export default function BankImportsPage() {
   const [viewTab, setViewTab] = useState<ViewTab>('products')
   const [dlState, setDlState] = useState<DlState>('idle')
 
-  const latestQ = useQuery({ queryKey: ['bank-imports'], queryFn: getLatestBankImports, staleTime: 0 })
-  const diffQ   = useQuery({ queryKey: ['bank-diff'],    queryFn: getBankDiff,          staleTime: 0 })
+  const latestQ = useQuery({ queryKey: ['bank-imports'], queryFn: getLatestBankImports, staleTime: 30_000, retry: 1 })
+  const diffQ   = useQuery({ queryKey: ['bank-diff'],    queryFn: getBankDiff,          staleTime: 30_000, retry: 1 })
 
   const isLoading = latestQ.isLoading || diffQ.isLoading
   const isFetching = latestQ.isFetching || diffQ.isFetching
 
   const institutions = latestQ.data ?? []
   const diffs        = diffQ.data ?? []
+
+  const isError = !isLoading && institutions.length === 0 && (latestQ.isError || diffQ.isError)
 
   const firstKey = institutions[0]?.key ?? null
   const activeKey = selectedKey ?? firstKey
@@ -535,7 +537,20 @@ export default function BankImportsPage() {
         </div>
       )}
 
-      {!isLoading && institutions.length > 0 && (
+      {isError && (
+        <div className="flex flex-col items-center justify-center py-24 gap-3">
+          <p className="text-sm text-red-500 font-medium">데이터를 불러오지 못했습니다</p>
+          <p className="text-xs text-slate-400">
+            {latestQ.error instanceof Error ? latestQ.error.message : '서버 오류 — 잠시 후 새로고침해 주세요'}
+          </p>
+          <button onClick={refetch}
+            className="px-4 py-2 text-sm rounded-lg bg-blue-600 text-white hover:bg-blue-700">
+            다시 시도
+          </button>
+        </div>
+      )}
+
+      {!isLoading && !isError && institutions.length > 0 && (
         <>
           {/* 기관 카드 */}
           <div className="grid grid-cols-3 gap-4">
