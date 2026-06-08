@@ -51,12 +51,11 @@ async def list_funds(
     count_sql = text(f"""
         SELECT COUNT(*)
         FROM funds f
-        JOIN internal_categories c ON f.internal_category_id = c.id
+        LEFT JOIN internal_categories c ON f.internal_category_id = c.id
         {where}
     """)
     total = (await db.execute(count_sql, params)).scalar() or 0
 
-    # 최신 기준가·수익률: 상관 서브쿼리로 최신 날짜 조인 (SQLite/PostgreSQL 공용)
     data_sql = text(f"""
         SELECT
             f.fund_code, f.fund_name, f.management_company,
@@ -67,7 +66,7 @@ async def list_funds(
                 WHEN 3 THEN p2.name || '-' || p1.name || '-' || c.name
             END AS category_full_path
         FROM funds f
-        JOIN internal_categories c  ON f.internal_category_id = c.id
+        LEFT JOIN internal_categories c  ON f.internal_category_id = c.id
         LEFT JOIN internal_categories p1 ON c.parent_id = p1.id
         LEFT JOIN internal_categories p2 ON p1.parent_id = p2.id
         {where}

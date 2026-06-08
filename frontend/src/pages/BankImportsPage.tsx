@@ -436,8 +436,8 @@ export default function BankImportsPage() {
   const [viewTab, setViewTab] = useState<ViewTab>('products')
   const [dlState, setDlState] = useState<DlState>('idle')
 
-  const latestQ = useQuery({ queryKey: ['bank-imports'], queryFn: getLatestBankImports, staleTime: 5 * 60 * 1000 })
-  const diffQ   = useQuery({ queryKey: ['bank-diff'],    queryFn: getBankDiff,          staleTime: 5 * 60 * 1000 })
+  const latestQ = useQuery({ queryKey: ['bank-imports'], queryFn: getLatestBankImports, staleTime: 0 })
+  const diffQ   = useQuery({ queryKey: ['bank-diff'],    queryFn: getBankDiff,          staleTime: 0 })
 
   const isLoading = latestQ.isLoading || diffQ.isLoading
   const isFetching = latestQ.isFetching || diffQ.isFetching
