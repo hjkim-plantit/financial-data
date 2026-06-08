@@ -54,7 +54,7 @@ SELECT
     e.tot_pay                      AS management_fee,
     e.idx_comm_id_l                AS asset_class_l,
     e.idx_comm_id_m                AS asset_class_m,
-    CASE WHEN s.list_yn = 1 THEN '운용중' ELSE '판매중단' END AS status
+    CASE WHEN s.list_yn = true OR s.list_yn = 1 THEN '운용중' ELSE '판매중단' END AS status
 FROM iceberg.fnguide.ts_etf_info e
 JOIN iceberg.fnguide.ts_stock s ON s.stk_cd = e.etf_cd
 WHERE s.isin_cd IS NOT NULL
