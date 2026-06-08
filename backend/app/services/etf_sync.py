@@ -19,14 +19,25 @@ from app.services.redash_client import RedashClient
 
 logger = logging.getLogger(__name__)
 
-# ── idx_comm_id_l → internal_category_id 매핑 ────────────────
+# ── internal_category_id 매핑 ─────────────────────────────────
+# (idx_comm_id_l, idx_comm_id_m) → category_id  (중분류 우선)
+_CATEGORY_MAP: dict[tuple[str, str], int] = {
+    ("원자재", "금속"):   8,   # commodity_metal
+    ("원자재", "에너지"): 9,   # commodity_energy
+    ("원자재", "농산물"): 10,  # commodity_agri
+    ("통화",   "미국달러"): 6,
+    ("통화",   "일본엔"):   6,
+    ("통화",   "유로"):     6,
+}
 
-_ASSET_CLASS_MAP: dict[str, int] = {
+# 대분류 fallback
+_CATEGORY_L_MAP: dict[str, int] = {
     "주식":    1,
     "채권":    2,
     "부동산":  4,
     "인프라":  5,
-    "원자재":  11,
+    "통화":    6,   # alt_fx
+    "원자재":  11,  # commodity_other (중분류 매핑 실패 시)
     "혼합자산": 99,
     "기타":    99,
 }
@@ -91,13 +102,13 @@ async def sync_etf_funds(
         if not fund_code:
             continue
 
-        asset_class = _str(row.get("asset_class_l")) or ""
-        category_id = _ASSET_CLASS_MAP.get(asset_class, 99)
+        asset_l = _str(row.get("asset_class_l")) or ""
+        asset_m = _str(row.get("asset_class_m")) or ""
+        category_id = _CATEGORY_MAP.get((asset_l, asset_m), _CATEGORY_L_MAP.get(asset_l, 99))
         if category_id == 99:
             stats["no_category"] += 1
 
-        asset_class = _str(row.get("asset_class_l")) or ""
-        risk_grade = _RISK_GRADE_APPROX.get(asset_class)
+        risk_grade = _RISK_GRADE_APPROX.get(asset_l)
 
         fund_rows.append({
             "fund_code":            fund_code,
