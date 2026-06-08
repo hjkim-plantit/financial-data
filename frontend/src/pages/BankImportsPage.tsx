@@ -37,7 +37,7 @@ const LEVERAGE_INVERSE_RE = /레버리지|인버스|2X|2배|3X|3배|곱버전|20
 
 function buildMasterCsv(institutions: InstitutionData[]): string {
   const map = new Map<string, {
-    name: string; code: string; k55Code: string | null; productType: string
+    name: string; fundCode: string; productType: string
     riskGrade: number | null
     assetClass: string; region: string; sector: string
     woori: boolean; busan: boolean; gyeongnam: boolean
@@ -46,7 +46,6 @@ function buildMasterCsv(institutions: InstitutionData[]): string {
   for (const inst of institutions) {
     for (const item of inst.items) {
       if (!item.available) continue
-      // ETF 레버리지/인버스 제외
       if (item.product_type === 'etf' && LEVERAGE_INVERSE_RE.test(item.fund_name)) continue
       const existing = map.get(item.fund_code)
       if (existing) {
@@ -55,7 +54,7 @@ function buildMasterCsv(institutions: InstitutionData[]): string {
         if (inst.key === 'bnk_gyeongnam')   existing.gyeongnam = true
       } else {
         map.set(item.fund_code, {
-          name: item.fund_name, code: item.fund_code, k55Code: item.k55_code ?? null,
+          name: item.fund_name, fundCode: item.fund_code,
           productType: item.product_type,
           riskGrade: item.risk_grade,
           assetClass: item.asset_class ?? '',
@@ -75,34 +74,32 @@ function buildMasterCsv(institutions: InstitutionData[]): string {
   for (const p of map.values()) {
     const isEtf   = p.productType === 'etf'
     const isBond  = p.assetClass === '채권'
-    // 펀드조회 기준 코드: K55 우선, 없으면 KRZ, ETF는 KR7
-    const baseCode  = p.k55Code ?? p.code
+    // fund_code는 이미 K55 우선 (없으면 KRZ). ETF는 KR7.
     // KR7/KRZ/K55/KR5 모두 앞 3자리는 코드 분류자 → chars 3-9이 실질 코드
-    const shortCode = /^(KR[75Z]|K[R5]5)/.test(baseCode) ? baseCode.slice(3, 9) : baseCode
-    const isin      = isEtf ? p.code : (p.k55Code ?? p.code)
+    const shortCode = /^(KR[75Z]|K[R5]5)/.test(p.fundCode) ? p.fundCode.slice(3, 9) : p.fundCode
     const riskLabel = p.riskGrade ? (RISK_LABEL[p.riskGrade] ?? '') : ''
 
     rows.push([
-      p.name, shortCode, isin,
+      p.name, shortCode, p.fundCode,
       isEtf ? 'ETF' : 'FUND',
-      p.assetClass,   // 자산군 — DB+키워드 분류
+      p.assetClass,
       '국내',
-      p.region,       // 지역 — DB+키워드 분류
-      '', '', '', '', // 환 전략, 과세유형, 복제방식, 운용방식 — 생략
-      p.sector,       // 섹터 — 키워드 분류
+      p.region,
+      '', '', '', '',
+      p.sector,
       riskLabel,
-      '',             // 간이투자설명서
-      b(isEtf),                 // Plantit 배당
-      b(isEtf && isBond),       // Plantit 채권 액티브 — ETF 중 채권만
-      b(isEtf),                 // Plantit 섹터&테마
-      b(isEtf),                 // 18차 유니버설
-      b(p.woori && isEtf),      // 우리자산x퀀팃 EMP_P
-      b(p.woori && !isEtf),     // 우리자산x퀀팃 FOF_P
-      b(isEtf),                 // 퀀팃 SAIV-ROBO
-      b(p.busan && isEtf),      // BNK부산_EMP
-      b(p.busan && !isEtf),     // BNK부산_FOF
-      b(p.gyeongnam && isEtf),  // BNK경남_EMP
-      b(p.gyeongnam && !isEtf), // BNK경남_FOF
+      '',
+      b(isEtf),
+      b(isEtf && isBond),
+      b(isEtf),
+      b(isEtf),
+      b(p.woori && isEtf),
+      b(p.woori && !isEtf),
+      b(isEtf),
+      b(p.busan && isEtf),
+      b(p.busan && !isEtf),
+      b(p.gyeongnam && isEtf),
+      b(p.gyeongnam && !isEtf),
     ])
   }
 
@@ -301,27 +298,31 @@ function ProductTable({ inst }: { inst: InstitutionData }) {
             <tbody>
               {rows.length === 0
                 ? <tr><td colSpan={7} className="py-10 text-center text-slate-400">결과 없음</td></tr>
-                : rows.map((item: FundItem) => (
-                  <tr key={item.fund_code} className={clsx(!item.matched && 'bg-orange-50/40')}>
-                    <td className="text-center"><TypeBadge type={item.product_type} /></td>
-                    <td className="font-mono text-xs text-slate-400 truncate">{item.fund_code}</td>
-                    <td className="font-mono text-xs text-slate-700 truncate">
-                      {item.k55_code
-                        ? <span className="text-blue-600">{item.k55_code}</span>
-                        : <span className="text-slate-300">—</span>}
-                    </td>
-                    <td className="text-sm truncate" title={item.fund_name}>{item.fund_name}</td>
-                    <td className="text-center"><RiskBadge grade={item.risk_grade} /></td>
-                    <td className="text-center text-xs text-slate-500">{formatDate(item.start_date)}</td>
-                    <td className="text-center">
-                      {item.matched
-                        ? <span className="text-green-500 text-sm">✓</span>
-                        : item.k55_code
-                          ? <span className="text-amber-500 text-xs">DB없음</span>
-                          : <span className="text-orange-400 text-xs">미매칭</span>}
-                    </td>
-                  </tr>
-                ))
+                : rows.map((item: FundItem) => {
+                  // fund_code가 K55면 raw_code(KRZ)와 다름 → K55 확보됨
+                  const hasK55 = item.fund_code !== item.raw_code
+                  return (
+                    <tr key={item.raw_code} className={clsx(!item.matched && 'bg-orange-50/40')}>
+                      <td className="text-center"><TypeBadge type={item.product_type} /></td>
+                      <td className="font-mono text-xs text-slate-400 truncate">{item.raw_code}</td>
+                      <td className="font-mono text-xs truncate">
+                        {hasK55
+                          ? <span className="text-blue-600">{item.fund_code}</span>
+                          : <span className="text-slate-300">—</span>}
+                      </td>
+                      <td className="text-sm truncate" title={item.fund_name}>{item.fund_name}</td>
+                      <td className="text-center"><RiskBadge grade={item.risk_grade} /></td>
+                      <td className="text-center text-xs text-slate-500">{formatDate(item.start_date)}</td>
+                      <td className="text-center">
+                        {item.matched
+                          ? <span className="text-green-500 text-sm">✓</span>
+                          : hasK55
+                            ? <span className="text-amber-500 text-xs">DB없음</span>
+                            : <span className="text-orange-400 text-xs">미매칭</span>}
+                      </td>
+                    </tr>
+                  )
+                })
               }
             </tbody>
           </table>

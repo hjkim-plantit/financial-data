@@ -15,6 +15,7 @@ router = APIRouter(prefix="/bank-imports", tags=["기관 데이터"])
 
 class FundItemOut(BaseModel):
     fund_code: str
+    raw_code: str
     fund_name: str
     product_type: str
     available: bool
@@ -22,7 +23,6 @@ class FundItemOut(BaseModel):
     start_date: Optional[str]
     end_date: Optional[str]
     matched: bool
-    k55_code: Optional[str]
     asset_class: str
     region: str
     sector: str
@@ -109,12 +109,12 @@ async def get_latest(db: AsyncSession = Depends(get_db)):
             error=r.error,
             items=[
                 FundItemOut(
-                    fund_code=i.fund_code, fund_name=i.fund_name,
+                    fund_code=i.fund_code, raw_code=i.raw_code,
+                    fund_name=i.fund_name,
                     product_type=i.product_type,
                     available=i.available, risk_grade=i.risk_grade,
                     start_date=i.start_date, end_date=i.end_date,
                     matched=i.matched,
-                    k55_code=i.k55_code,
                     asset_class=i.asset_class,
                     region=i.region,
                     sector=i.sector,

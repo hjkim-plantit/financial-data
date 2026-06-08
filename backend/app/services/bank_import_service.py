@@ -264,7 +264,8 @@ INSTITUTIONS: list[InstitutionConfig] = [
 
 @dataclass
 class FundItem:
-    fund_code: str           # KRZ 예탁원 코드 (은행 원본)
+    fund_code: str           # 매칭 기준 코드: K55(BNK) 또는 KRZ(우리)
+    raw_code: str            # 은행 원본 KRZ 예탁원 코드
     fund_name: str
     product_type: str        # 'fund' | 'etf' | 'unknown'
     available: bool
@@ -272,10 +273,9 @@ class FundItem:
     start_date: Optional[str]
     end_date: Optional[str]
     matched: bool
-    k55_code: Optional[str] = None  # K55/KR5 KOFIA 코드 (펀드조회 기준)
-    asset_class: str = ""    # 자산군
-    region: str = ""         # 지역
-    sector: str = ""         # 섹터
+    asset_class: str = ""
+    region: str = ""
+    sector: str = ""
 
 
 @dataclass
@@ -476,53 +476,42 @@ def _fetch_one(
             if end_d and end_d.replace("-", "") != "99991231":
                 continue
 
-            # ETF 여부: KSD 코드가 KR7로 시작
-            is_etf = etf_code.startswith("KR7")
-
-            if is_etf:
-                code = etf_code
-                product_type = "etf"
-                matched = code in db_etfs
-                k55_code = None
-            else:
-                # KRZ(예탁원) 우선 → K55(KOFIA) 폴백
-                if etf_code.startswith("KRZ"):
-                    code = etf_code
-                elif fund_code and not fund_code.startswith("KR7"):
-                    code = fund_code
-                else:
-                    code = etf_code
-                product_type = "fund"
-                matched = code in db_funds
-                if not matched and code.startswith("KRZ"):
-                    # 1순위: 이메일 직접 제공 K55 (BNK 퇴직연금상품통합관리번호)
-                    # 2순위: woori_fund_checked.csv 매핑
-                    k55_code = (row_k55 if row_k55 and not row_k55.startswith("KRZ")
-                                else _KRZ_TO_K55.get(code))
-                    if k55_code:
-                        matched = k55_code in db_funds
-                else:
-                    k55_code = row_k55 if row_k55 and not row_k55.startswith("KRZ") else None
-
-            if not code or code == "nan":
+            # KRZ 원본 코드
+            krz = etf_code if etf_code else fund_code
+            if not krz or krz == "nan":
                 continue
 
-            # KRZ코드면 K55 코드로 DB 메타 조회 (KRZ는 DB에 없음)
-            lookup_code = k55_code if (k55_code and k55_code in db_meta) else code
-            meta = db_meta.get(lookup_code, {})
-            asset_cls = _classify_asset_class(name, meta.get("category_id"))
+            # ETF: KR7로 시작
+            if krz.startswith("KR7"):
+                matched = krz in db_etfs
+                items.append(FundItem(
+                    fund_code=krz, raw_code=krz,
+                    fund_name=name, product_type="etf",
+                    available=avail, risk_grade=db_meta.get(krz, {}).get("risk_grade"),
+                    start_date=start, end_date=end_d, matched=matched,
+                    asset_class=_classify_asset_class(name, db_meta.get(krz, {}).get("category_id")),
+                    region=_classify_region(name, db_meta.get(krz, {}).get("region")),
+                    sector=_classify_sector(name),
+                ))
+                continue
 
-            # 위험등급: DB값 우선, 없으면 공란 (이메일의 일임펀드위험구분코드는 사용 안 함)
-            risk_grade = meta.get("risk_grade")
+            # 펀드: K55 코드 결정
+            # 1순위: 이메일 직접 제공 (BNK 퇴직연금상품통합관리번호)
+            # 2순위: woori_fund_checked.csv KRZ→K55 매핑
+            k55 = (row_k55 if row_k55 and not row_k55.startswith("KRZ")
+                   else _KRZ_TO_K55.get(krz))
 
+            # 매칭 기준 코드: K55 있으면 K55, 없으면 KRZ
+            fund_code_final = k55 if k55 else krz
+            matched = fund_code_final in db_funds
+
+            meta = db_meta.get(fund_code_final, {})
             items.append(FundItem(
-                fund_code=code, fund_name=name,
-                product_type=product_type,
-                available=avail, risk_grade=risk_grade,
-                start_date=start, end_date=end_d,
-                matched=matched,
-                k55_code=k55_code,
-                asset_class=asset_cls,
+                fund_code=fund_code_final, raw_code=krz,
+                fund_name=name, product_type="fund",
+                available=avail, risk_grade=meta.get("risk_grade"),
+                start_date=start, end_date=end_d, matched=matched,
+                asset_class=_classify_asset_class(name, meta.get("category_id")),
                 region=_classify_region(name, meta.get("region")),
                 sector=_classify_sector(name),
             ))
