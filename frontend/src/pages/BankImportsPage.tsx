@@ -279,12 +279,12 @@ function ProductTable({ inst }: { inst: InstitutionData }) {
           <table className="table-base w-full" style={{ tableLayout: 'fixed' }}>
             <colgroup>
               <col style={{ width: '55px' }} />
-              <col style={{ width: '110px' }} />
-              <col style={{ width: '115px' }} />
+              <col style={{ width: '145px' }} />
+              <col style={{ width: '145px' }} />
               <col style={{ width: 'auto' }} />
+              <col style={{ width: '72px' }} />
               <col style={{ width: '80px' }} />
-              <col style={{ width: '85px' }} />
-              <col style={{ width: '60px' }} />
+              <col style={{ width: '56px' }} />
             </colgroup>
             <thead><tr>
               <th className="text-center">종류</th>
@@ -383,7 +383,7 @@ function DiffTable({ diff }: { diff: InstitutionDiff }) {
           <table className="table-base w-full" style={{ tableLayout: 'fixed' }}>
             <colgroup>
               <col style={{ width: '55px' }} /><col style={{ width: '55px' }} />
-              <col style={{ width: '130px' }} /><col style={{ width: 'auto' }} /><col style={{ width: '200px' }} />
+              <col style={{ width: '150px' }} /><col style={{ width: 'auto' }} /><col style={{ width: '200px' }} />
             </colgroup>
             <thead><tr>
               <th className="text-center">구분</th><th className="text-center">종류</th>
