@@ -1,6 +1,6 @@
 import { useState } from 'react'
-import { useQuery } from '@tanstack/react-query'
-import { getLatestBankImports } from '../api/bankImports'
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+import { getLatestBankImports, saveWooriMapping } from '../api/bankImports'
 import { getBankDiff } from '../api/bankDiff'
 import type { InstitutionData, FundItem } from '../api/bankImports'
 import type { InstitutionDiff, ProductChange } from '../api/bankDiff'
@@ -237,6 +237,24 @@ function ProductTable({ inst }: { inst: InstitutionData }) {
   const [typeF, setTypeF]  = useState<TypeFilter>('all')
   const [matchF, setMatchF] = useState<MatchFilter>('all')
   const [search, setSearch] = useState('')
+  const [editingKrz, setEditingKrz] = useState<string | null>(null)
+  const [inputVal, setInputVal] = useState('')
+
+  const queryClient = useQueryClient()
+  const mappingMutation = useMutation({
+    mutationFn: ({ krz, k55 }: { krz: string; k55: string }) => saveWooriMapping(krz, k55),
+    onSuccess: () => {
+      setEditingKrz(null)
+      setInputVal('')
+      queryClient.invalidateQueries({ queryKey: ['bank-imports'] })
+    },
+  })
+
+  function handleSave(krz: string) {
+    const k55 = inputVal.trim()
+    if (!k55) return
+    mappingMutation.mutate({ krz, k55 })
+  }
 
   const rows = inst.items.filter(item => {
     if (typeF  === 'fund' && item.product_type !== 'fund') return false
@@ -305,10 +323,40 @@ function ProductTable({ inst }: { inst: InstitutionData }) {
                     <tr key={item.raw_code} className={clsx(!item.matched && 'bg-orange-50/40')}>
                       <td className="text-center"><TypeBadge type={item.product_type} /></td>
                       <td className="font-mono text-xs text-slate-400 truncate">{item.raw_code}</td>
-                      <td className="font-mono text-xs truncate">
-                        {hasK55
-                          ? <span className="text-blue-600">{item.fund_code}</span>
-                          : <span className="text-slate-300">—</span>}
+                      <td className="font-mono text-xs">
+                        {hasK55 ? (
+                          <span className="text-blue-600 truncate block">{item.fund_code}</span>
+                        ) : inst.key === 'woori' && item.product_type === 'fund' ? (
+                          editingKrz === item.raw_code ? (
+                            <div className="flex items-center gap-1">
+                              <input
+                                autoFocus
+                                type="text"
+                                value={inputVal}
+                                onChange={e => setInputVal(e.target.value)}
+                                onKeyDown={e => { if (e.key === 'Enter') handleSave(item.raw_code); if (e.key === 'Escape') setEditingKrz(null) }}
+                                placeholder="K55..."
+                                className="w-28 border border-blue-300 rounded px-1 py-0.5 text-xs focus:outline-none focus:ring-1 focus:ring-blue-400"
+                              />
+                              <button
+                                onClick={() => handleSave(item.raw_code)}
+                                disabled={mappingMutation.isPending}
+                                className="text-blue-500 hover:text-blue-700 text-xs font-medium disabled:opacity-50"
+                              >저장</button>
+                              <button onClick={() => setEditingKrz(null)} className="text-slate-300 hover:text-slate-500 text-xs">✕</button>
+                            </div>
+                          ) : (
+                            <button
+                              onClick={() => { setEditingKrz(item.raw_code); setInputVal('') }}
+                              className="flex items-center gap-1 text-slate-300 hover:text-blue-500 group"
+                            >
+                              <span>—</span>
+                              <span className="opacity-0 group-hover:opacity-100 text-xs">✎</span>
+                            </button>
+                          )
+                        ) : (
+                          <span className="text-slate-300">—</span>
+                        )}
                       </td>
                       <td className="text-sm truncate" title={item.fund_name}>{item.fund_name}</td>
                       <td className="text-center"><RiskBadge grade={item.risk_grade} /></td>

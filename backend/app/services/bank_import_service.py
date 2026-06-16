@@ -135,6 +135,36 @@ def _load_krz_to_k55() -> dict[str, str]:
 _KRZ_TO_K55: dict[str, str] = _load_krz_to_k55()
 
 
+def save_woori_mapping(krz: str, k55: str) -> None:
+    """KRZ→K55 매핑을 woori_fund_checked.csv에 저장하고 인메모리 캐시를 갱신한다."""
+    global _KRZ_TO_K55
+
+    df: Optional[pd.DataFrame] = None
+    if _WOORI_CHECKED_CSV.exists():
+        for enc in ("utf-8-sig", "utf-8", "cp949"):
+            try:
+                df = pd.read_csv(_WOORI_CHECKED_CSV, encoding=enc, dtype=str)
+                break
+            except UnicodeDecodeError:
+                continue
+
+    if df is None:
+        df = pd.DataFrame(columns=["종류", "코드", "상품명", "위험등급", "취급시작",
+                                    "취급종료", "판매", "매칭", "협회표준코드"])
+
+    mask = df["코드"] == krz
+    if mask.any():
+        df.loc[mask, "협회표준코드"] = k55
+    else:
+        new_row = {col: "" for col in df.columns}
+        new_row.update({"종류": "펀드", "코드": krz, "협회표준코드": k55})
+        df = pd.concat([df, pd.DataFrame([new_row])], ignore_index=True)
+
+    df.to_csv(_WOORI_CHECKED_CSV, index=False, encoding="utf-8-sig")
+    _KRZ_TO_K55[krz] = k55
+    logger.info("KRZ→K55 매핑 저장: %s → %s", krz, k55)
+
+
 def _classify_asset_class(name: str, category_id: Optional[int]) -> str:
     if category_id and category_id in _CAT_TO_ASSET:
         return _CAT_TO_ASSET[category_id]

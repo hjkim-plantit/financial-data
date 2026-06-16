@@ -7,7 +7,7 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
-from app.services.bank_import_service import fetch_all
+from app.services.bank_import_service import fetch_all, save_woori_mapping
 from app.services.bank_diff_service import fetch_diff
 
 router = APIRouter(prefix="/bank-imports", tags=["기관 데이터"])
@@ -67,6 +67,18 @@ class InstitutionDiffOut(BaseModel):
     changed: list[ProductChangeOut]
     total_changes: int
     error: Optional[str]
+
+
+class WooriMappingIn(BaseModel):
+    krz_code: str
+    k55_code: str
+
+
+@router.post("/woori/mappings", status_code=200)
+async def upsert_woori_mapping(body: WooriMappingIn):
+    """우리은행 KRZ→K55 매핑을 CSV에 저장하고 인메모리 캐시를 갱신한다."""
+    save_woori_mapping(body.krz_code, body.k55_code)
+    return {"krz_code": body.krz_code, "k55_code": body.k55_code}
 
 
 @router.get("/diff", response_model=list[InstitutionDiffOut])

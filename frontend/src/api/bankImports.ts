@@ -33,3 +33,7 @@ export async function getLatestBankImports(): Promise<InstitutionData[]> {
   const { data } = await client.get<InstitutionData[]>('/bank-imports/latest')
   return data
 }
+
+export async function saveWooriMapping(krzCode: string, k55Code: string): Promise<void> {
+  await client.post('/bank-imports/woori/mappings', { krz_code: krzCode, k55_code: k55Code })
+}
