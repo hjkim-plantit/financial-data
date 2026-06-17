@@ -1,6 +1,6 @@
 import { useState, useCallback } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { getFunds } from '../api/funds'
+import { getFunds, getLastUpdated } from '../api/funds'
 import CategoryFilter from '../components/CategoryFilter'
 import type { FundListItem } from '../types'
 import clsx from 'clsx'
@@ -73,6 +73,12 @@ export default function FundListPage() {
   const [page, setPage] = useState(1)
   const pageSize = 20
 
+  const { data: lastUpdated } = useQuery({
+    queryKey: ['funds-last-updated'],
+    queryFn: getLastUpdated,
+    staleTime: 60_000,
+  })
+
   const { data, isLoading, isError, error } = useQuery({
     queryKey: ['funds', { search, categoryId, status, productType, riskGrade, page, pageSize }],
     queryFn: () => getFunds({
@@ -121,6 +127,16 @@ export default function FundListPage() {
             {total > 0 ? `총 ${total.toLocaleString()}개 펀드` : '펀드 목록'}
           </p>
         </div>
+        {lastUpdated && (
+          <div className="text-right text-xs text-slate-400 space-y-0.5">
+            {lastUpdated.fund && (
+              <p>펀드 동기화 <span className="text-slate-500 font-medium">{lastUpdated.fund.slice(0, 10)}</span></p>
+            )}
+            {lastUpdated.etf && (
+              <p>ETF 동기화 <span className="text-slate-500 font-medium">{lastUpdated.etf.slice(0, 10)}</span></p>
+            )}
+          </div>
+        )}
       </div>
 
       {/* Filters */}

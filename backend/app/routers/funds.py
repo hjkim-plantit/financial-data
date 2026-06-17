@@ -150,6 +150,19 @@ class BulkCategorizeBody(BaseModel):
     category_id: int
 
 
+@router.get("/last-updated")
+async def get_last_updated(db: AsyncSession = Depends(get_db)):
+    """펀드·ETF 별 마지막 updated_at 반환."""
+    result = await db.execute(text("""
+        SELECT product_type, MAX(updated_at) AS last_updated
+        FROM funds
+        GROUP BY product_type
+    """))
+    rows = result.mappings().all()
+    data = {r["product_type"]: r["last_updated"].isoformat() if r["last_updated"] else None for r in rows}
+    return {"fund": data.get("fund"), "etf": data.get("etf")}
+
+
 @router.get("/unclassified", response_model=list[UnclassifiedFundItem])
 async def list_unclassified_funds(
     search: str | None = Query(None),

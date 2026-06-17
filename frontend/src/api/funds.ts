@@ -26,6 +26,11 @@ export async function getUnclassifiedCount(): Promise<number> {
   return data.count
 }
 
+export async function getLastUpdated(): Promise<{ fund: string | null; etf: string | null }> {
+  const { data } = await client.get<{ fund: string | null; etf: string | null }>('/funds/last-updated')
+  return data
+}
+
 export async function bulkCategorize(fundCodes: string[], categoryId: number): Promise<{ updated: number }> {
   const { data } = await client.patch<{ updated: number }>('/funds/bulk-categorize', {
     fund_codes: fundCodes,
