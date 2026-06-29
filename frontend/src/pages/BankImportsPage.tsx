@@ -32,7 +32,6 @@ function csvCell(s: string | null | undefined): string {
   return str
 }
 
-// 레버리지/인버스 ETF 제외 패턴
 const LEVERAGE_INVERSE_RE = /레버리지|인버스|2X|2배|3X|3배|곱버전|200%|300%|short|bear/i
 
 function buildMasterCsv(institutions: InstitutionData[]): string {
@@ -74,8 +73,6 @@ function buildMasterCsv(institutions: InstitutionData[]): string {
   for (const p of map.values()) {
     const isEtf   = p.productType === 'etf'
     const isBond  = p.assetClass === '채권'
-    // fund_code는 이미 K55 우선 (없으면 KRZ). ETF는 KR7.
-    // KR7/KRZ/K55/KR5 모두 앞 3자리는 코드 분류자 → chars 3-9이 실질 코드
     const shortCode = /^(KR[75Z]|K[R5]5)/.test(p.fundCode) ? p.fundCode.slice(3, 9) : p.fundCode
     const riskLabel = p.riskGrade ? (RISK_LABEL[p.riskGrade] ?? '') : ''
 
@@ -130,12 +127,18 @@ function formatDate(d: string | null): string {
 }
 
 function RiskBadge({ grade }: { grade: number | null }) {
-  if (grade === null) return <span className="text-slate-300 text-xs">—</span>
-  const colors = ['', 'bg-red-100 text-red-700', 'bg-orange-100 text-orange-700',
-    'bg-amber-100 text-amber-800', 'bg-yellow-100 text-yellow-800',
-    'bg-green-100 text-green-700', 'bg-emerald-100 text-emerald-700']
+  if (grade === null) return <span className="text-neutral-300 text-xs">—</span>
+  const colors = [
+    '',
+    'bg-red-50 text-red-600',
+    'bg-orange-50 text-orange-600',
+    'bg-amber-50 text-amber-700',
+    'bg-yellow-50 text-yellow-700',
+    'bg-green-50 text-green-700',
+    'bg-emerald-50 text-emerald-700',
+  ]
   return (
-    <span className={clsx('inline-flex px-1.5 py-0.5 rounded text-xs font-medium', colors[grade] ?? 'bg-slate-100 text-slate-500')}>
+    <span className={clsx('inline-flex px-2 py-0.5 rounded-full text-xs font-medium', colors[grade] ?? 'bg-neutral-100 text-neutral-500')}>
       {grade}등급
     </span>
   )
@@ -143,19 +146,27 @@ function RiskBadge({ grade }: { grade: number | null }) {
 
 function TypeBadge({ type }: { type: string }) {
   return (
-    <span className={clsx('inline-flex px-1.5 py-0.5 rounded text-xs font-medium',
-      type === 'etf' ? 'bg-indigo-50 text-indigo-600' : 'bg-slate-100 text-slate-500')}>
+    <span className={clsx(
+      'inline-flex px-2 py-0.5 rounded-full text-xs font-medium',
+      type === 'etf' ? 'bg-neutral-900 text-white' : 'bg-neutral-100 text-neutral-500'
+    )}>
       {type === 'etf' ? 'ETF' : '펀드'}
     </span>
   )
 }
 
 function ChangeBadge({ type }: { type: string }) {
-  const s = { added: 'bg-green-50 text-green-700', removed: 'bg-red-50 text-red-600', changed: 'bg-amber-50 text-amber-700' }
+  const s = {
+    added:   'bg-green-50 text-green-700',
+    removed: 'bg-red-50 text-red-600',
+    changed: 'bg-amber-50 text-amber-700',
+  }
   const l = { added: '신규', removed: '삭제', changed: '변경' }
   return (
-    <span className={clsx('inline-flex px-1.5 py-0.5 rounded text-xs font-medium border',
-      s[type as keyof typeof s] ?? 'bg-slate-100 text-slate-500')}>
+    <span className={clsx(
+      'inline-flex px-2 py-0.5 rounded-full text-xs font-medium',
+      s[type as keyof typeof s] ?? 'bg-neutral-100 text-neutral-500'
+    )}>
       {l[type as keyof typeof l] ?? type}
     </span>
   )
@@ -173,25 +184,27 @@ function SummaryCard({ instKey, name, selected, onClick, latest, diff }: {
 
   return (
     <button onClick={onClick} className={clsx(
-      'text-left p-4 rounded-xl border transition-all w-full',
-      selected ? 'border-blue-400 bg-blue-50 shadow-sm' : 'border-slate-200 bg-white hover:border-slate-300',
+      'text-left p-5 rounded-xl border transition-all w-full',
+      selected
+        ? 'border-black bg-neutral-50'
+        : 'border-neutral-200 bg-white hover:border-neutral-400',
     )}>
-      <div className="flex items-start justify-between mb-3">
+      <div className="flex items-start justify-between mb-4">
         <div>
-          <p className="font-semibold text-slate-800">{name}</p>
-          <p className="text-xs text-slate-400 mt-0.5">수신일 {latest?.email_date ?? '—'}</p>
+          <p className="font-semibold text-neutral-900 text-sm">{name}</p>
+          <p className="text-xs text-neutral-400 mt-0.5">수신일 {latest?.email_date ?? '—'}</p>
           {diff && (diff.yesterday_date || diff.today_date) && (
-            <p className="text-xs text-slate-300 mt-0.5">
+            <p className="text-xs text-neutral-300 mt-0.5">
               비교 {diff.yesterday_date ?? '—'} → {diff.today_date ?? '—'}
             </p>
           )}
         </div>
         <div className="flex flex-col items-end gap-1">
-          <span className="text-xs bg-slate-100 text-slate-500 px-2 py-0.5 rounded">
+          <span className="text-xs bg-neutral-100 text-neutral-500 px-2.5 py-0.5 rounded-full">
             총 {latest?.total ?? 0}건
           </span>
           {totalChanges > 0 && (
-            <span className="text-xs bg-orange-50 text-orange-600 px-2 py-0.5 rounded font-medium">
+            <span className="text-xs bg-black text-white px-2.5 py-0.5 rounded-full font-medium">
               변경 {totalChanges}건
             </span>
           )}
@@ -201,24 +214,25 @@ function SummaryCard({ instKey, name, selected, onClick, latest, diff }: {
       {latest?.error ? (
         <p className="text-xs text-red-400">{latest.error}</p>
       ) : (
-        <div className="space-y-2">
-          {[{ label: '펀드', matched: latest?.fund_matched ?? 0, total: latest?.fund_total ?? 0, pct: fundPct, color: 'bg-blue-400' },
-            { label: 'ETF',  matched: latest?.etf_matched  ?? 0, total: latest?.etf_total  ?? 0, pct: etfPct,  color: 'bg-indigo-400', labelClass: 'text-indigo-600' }
+        <div className="space-y-2.5">
+          {[
+            { label: '펀드', matched: latest?.fund_matched ?? 0, total: latest?.fund_total ?? 0, pct: fundPct, color: 'bg-neutral-800' },
+            { label: 'ETF',  matched: latest?.etf_matched  ?? 0, total: latest?.etf_total  ?? 0, pct: etfPct,  color: 'bg-neutral-500' },
           ].map(row => (
             <div key={row.label}>
-              <div className="flex justify-between text-xs mb-0.5">
-                <span className={clsx('font-medium', row.labelClass ?? 'text-slate-500')}>{row.label}</span>
-                <span className="text-slate-400">{row.matched}/{row.total} ({row.pct}%)</span>
+              <div className="flex justify-between text-xs mb-1">
+                <span className="font-medium text-neutral-500">{row.label}</span>
+                <span className="text-neutral-400">{row.matched}/{row.total} ({row.pct}%)</span>
               </div>
-              <div className="h-1.5 rounded-full bg-slate-100 overflow-hidden">
-                <div className={clsx('h-full', row.color)} style={{ width: `${row.pct}%` }} />
+              <div className="h-1 rounded-full bg-neutral-100 overflow-hidden">
+                <div className={clsx('h-full transition-all', row.color)} style={{ width: `${row.pct}%` }} />
               </div>
             </div>
           ))}
           {diff && (
-            <div className="flex gap-3 pt-1 text-xs border-t border-slate-100 mt-1">
+            <div className="flex gap-3 pt-2 text-xs border-t border-neutral-100">
               <span className="text-green-600">+신규 {diff.added.length}</span>
-              <span className="text-red-500">-삭제 {diff.removed.length}</span>
+              <span className="text-red-500">−삭제 {diff.removed.length}</span>
               <span className="text-amber-600">~변경 {diff.changed.length}</span>
             </div>
           )}
@@ -270,14 +284,21 @@ function ProductTable({ inst }: { inst: InstitutionData }) {
 
   return (
     <div className="space-y-3">
-      <div className="flex items-center gap-3 flex-wrap">
-        <input type="text" placeholder="펀드명/코드 검색..." value={search}
-          onChange={e => setSearch(e.target.value)} className="input-base flex-1 min-w-48" />
+      <div className="flex items-center gap-2 flex-wrap">
+        <input
+          type="text"
+          placeholder="펀드명/코드 검색..."
+          value={search}
+          onChange={e => setSearch(e.target.value)}
+          className="flex-1 min-w-48 h-9 px-4 rounded-full border border-neutral-200 bg-neutral-50 text-sm text-neutral-900 placeholder:text-neutral-400 focus:outline-none focus:border-black focus:bg-white transition-colors"
+        />
         <div className="flex gap-1">
           {(['all','fund','etf'] as TypeFilter[]).map(v => (
             <button key={v} onClick={() => setTypeF(v)}
-              className={clsx('px-3 py-1.5 rounded-full text-xs font-medium',
-                typeF === v ? 'bg-indigo-500 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200')}>
+              className={clsx(
+                'px-3 py-1.5 rounded-full text-xs font-medium transition-colors',
+                typeF === v ? 'bg-black text-white' : 'bg-neutral-100 text-neutral-600 hover:bg-neutral-200'
+              )}>
               {v === 'all' ? `전체 ${inst.total}` : v === 'fund' ? `펀드 ${inst.fund_total}` : `ETF ${inst.etf_total}`}
             </button>
           ))}
@@ -285,16 +306,19 @@ function ProductTable({ inst }: { inst: InstitutionData }) {
         <div className="flex gap-1">
           {(['all','matched','unmatched'] as MatchFilter[]).map(v => (
             <button key={v} onClick={() => setMatchF(v)}
-              className={clsx('px-3 py-1.5 rounded-full text-xs font-medium',
-                matchF === v ? 'bg-blue-500 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200')}>
+              className={clsx(
+                'px-3 py-1.5 rounded-full text-xs font-medium transition-colors',
+                matchF === v ? 'bg-black text-white' : 'bg-neutral-100 text-neutral-600 hover:bg-neutral-200'
+              )}>
               {v === 'all' ? '전체' : v === 'matched' ? '매칭' : '미매칭'}
             </button>
           ))}
         </div>
       </div>
-      <div className="card overflow-hidden">
+
+      <div className="border border-neutral-200 rounded-xl overflow-hidden bg-white">
         <div className="overflow-x-auto">
-          <table className="table-base w-full" style={{ tableLayout: 'fixed' }}>
+          <table className="w-full text-sm" style={{ tableLayout: 'fixed' }}>
             <colgroup>
               <col style={{ width: '55px' }} />
               <col style={{ width: '145px' }} />
@@ -304,28 +328,32 @@ function ProductTable({ inst }: { inst: InstitutionData }) {
               <col style={{ width: '80px' }} />
               <col style={{ width: '56px' }} />
             </colgroup>
-            <thead><tr>
-              <th className="text-center">종류</th>
-              <th>KRZ코드</th>
-              <th>K55코드</th>
-              <th>상품명</th>
-              <th className="text-center">위험등급</th>
-              <th className="text-center">취급시작</th>
-              <th className="text-center">매칭</th>
-            </tr></thead>
-            <tbody>
+            <thead>
+              <tr className="border-b border-neutral-100 bg-neutral-50">
+                <th className="text-center py-2.5 px-3 text-xs font-medium text-neutral-500">종류</th>
+                <th className="py-2.5 px-3 text-xs font-medium text-neutral-500 text-left">KRZ코드</th>
+                <th className="py-2.5 px-3 text-xs font-medium text-neutral-500 text-left">K55코드</th>
+                <th className="py-2.5 px-3 text-xs font-medium text-neutral-500 text-left">상품명</th>
+                <th className="text-center py-2.5 px-3 text-xs font-medium text-neutral-500">위험등급</th>
+                <th className="text-center py-2.5 px-3 text-xs font-medium text-neutral-500">취급시작</th>
+                <th className="text-center py-2.5 px-3 text-xs font-medium text-neutral-500">매칭</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-neutral-50">
               {rows.length === 0
-                ? <tr><td colSpan={7} className="py-10 text-center text-slate-400">결과 없음</td></tr>
+                ? <tr><td colSpan={7} className="py-12 text-center text-neutral-400 text-sm">결과 없음</td></tr>
                 : rows.map((item: FundItem) => {
-                  // fund_code가 K55면 raw_code(KRZ)와 다름 → K55 확보됨
                   const hasK55 = item.fund_code !== item.raw_code
                   return (
-                    <tr key={item.raw_code} className={clsx(!item.matched && 'bg-orange-50/40')}>
-                      <td className="text-center"><TypeBadge type={item.product_type} /></td>
-                      <td className="font-mono text-xs text-slate-400 truncate">{item.raw_code}</td>
-                      <td className="font-mono text-xs">
+                    <tr key={item.raw_code} className={clsx(
+                      'hover:bg-neutral-50 transition-colors',
+                      !item.matched && 'bg-amber-50/30'
+                    )}>
+                      <td className="text-center py-2.5 px-3"><TypeBadge type={item.product_type} /></td>
+                      <td className="font-mono text-xs text-neutral-400 truncate py-2.5 px-3">{item.raw_code}</td>
+                      <td className="font-mono text-xs py-2.5 px-3">
                         {hasK55 ? (
-                          <span className="text-blue-600 truncate block">{item.fund_code}</span>
+                          <span className="text-neutral-700 truncate block">{item.fund_code}</span>
                         ) : inst.key === 'woori' && item.product_type === 'fund' ? (
                           editingKrz === item.raw_code ? (
                             <div className="flex items-center gap-1">
@@ -336,37 +364,37 @@ function ProductTable({ inst }: { inst: InstitutionData }) {
                                 onChange={e => setInputVal(e.target.value)}
                                 onKeyDown={e => { if (e.key === 'Enter') handleSave(item.raw_code); if (e.key === 'Escape') setEditingKrz(null) }}
                                 placeholder="K55..."
-                                className="w-28 border border-blue-300 rounded px-1 py-0.5 text-xs focus:outline-none focus:ring-1 focus:ring-blue-400"
+                                className="w-24 border border-neutral-300 rounded-full px-2 py-0.5 text-xs focus:outline-none focus:border-black"
                               />
                               <button
                                 onClick={() => handleSave(item.raw_code)}
                                 disabled={mappingMutation.isPending}
-                                className="text-blue-500 hover:text-blue-700 text-xs font-medium disabled:opacity-50"
+                                className="text-neutral-900 text-xs font-medium disabled:opacity-40 hover:underline"
                               >저장</button>
-                              <button onClick={() => setEditingKrz(null)} className="text-slate-300 hover:text-slate-500 text-xs">✕</button>
+                              <button onClick={() => setEditingKrz(null)} className="text-neutral-300 hover:text-neutral-500 text-xs">✕</button>
                             </div>
                           ) : (
                             <button
                               onClick={() => { setEditingKrz(item.raw_code); setInputVal('') }}
-                              className="flex items-center gap-1 text-slate-300 hover:text-blue-500 group"
+                              className="flex items-center gap-1 text-neutral-300 hover:text-neutral-700 group"
                             >
                               <span>—</span>
                               <span className="opacity-0 group-hover:opacity-100 text-xs">✎</span>
                             </button>
                           )
                         ) : (
-                          <span className="text-slate-300">—</span>
+                          <span className="text-neutral-300">—</span>
                         )}
                       </td>
-                      <td className="text-sm truncate" title={item.fund_name}>{item.fund_name}</td>
-                      <td className="text-center"><RiskBadge grade={item.risk_grade} /></td>
-                      <td className="text-center text-xs text-slate-500">{formatDate(item.start_date)}</td>
-                      <td className="text-center">
+                      <td className="text-sm text-neutral-700 truncate py-2.5 px-3" title={item.fund_name}>{item.fund_name}</td>
+                      <td className="text-center py-2.5 px-3"><RiskBadge grade={item.risk_grade} /></td>
+                      <td className="text-center text-xs text-neutral-400 py-2.5 px-3">{formatDate(item.start_date)}</td>
+                      <td className="text-center py-2.5 px-3">
                         {item.matched
-                          ? <span className="text-green-500 text-sm">✓</span>
+                          ? <span className="text-neutral-900 text-sm font-medium">✓</span>
                           : hasK55
                             ? <span className="text-amber-500 text-xs">DB없음</span>
-                            : <span className="text-orange-400 text-xs">미매칭</span>}
+                            : <span className="text-neutral-400 text-xs">미매칭</span>}
                       </td>
                     </tr>
                   )
@@ -375,7 +403,7 @@ function ProductTable({ inst }: { inst: InstitutionData }) {
             </tbody>
           </table>
         </div>
-        <div className="px-4 py-2 border-t border-slate-100 text-xs text-slate-400">{rows.length.toLocaleString()}건 표시</div>
+        <div className="px-4 py-2.5 border-t border-neutral-100 text-xs text-neutral-400">{rows.length.toLocaleString()}건 표시</div>
       </div>
     </div>
   )
@@ -401,62 +429,81 @@ function DiffTable({ diff }: { diff: InstitutionDiff }) {
 
   if (all.length === 0) {
     return (
-      <div className="card p-10 text-center text-slate-400">
-        <p className="text-sm">전일 대비 변경사항이 없습니다.</p>
-        {diff.yesterday_date && <p className="text-xs mt-1 text-slate-300">{diff.yesterday_date} → {diff.today_date}</p>}
+      <div className="border border-neutral-200 rounded-xl p-12 text-center bg-white">
+        <p className="text-sm text-neutral-400">전일 대비 변경사항이 없습니다.</p>
+        {diff.yesterday_date && (
+          <p className="text-xs mt-1 text-neutral-300">{diff.yesterday_date} → {diff.today_date}</p>
+        )}
       </div>
     )
   }
 
   return (
     <div className="space-y-3">
-      <div className="flex items-center gap-3 flex-wrap">
-        <input type="text" placeholder="펀드명/코드 검색..." value={search}
-          onChange={e => setSearch(e.target.value)} className="input-base flex-1 min-w-48" />
+      <div className="flex items-center gap-2 flex-wrap">
+        <input
+          type="text"
+          placeholder="펀드명/코드 검색..."
+          value={search}
+          onChange={e => setSearch(e.target.value)}
+          className="flex-1 min-w-48 h-9 px-4 rounded-full border border-neutral-200 bg-neutral-50 text-sm text-neutral-900 placeholder:text-neutral-400 focus:outline-none focus:border-black focus:bg-white transition-colors"
+        />
         <div className="flex gap-1">
           {(['all','added','removed','changed'] as ChangeFilter[]).map(v => {
-            const cnt = v === 'all' ? all.length : v === 'added' ? diff.added.length : v === 'removed' ? diff.removed.length : diff.changed.length
+            const cnt = v === 'all' ? all.length
+              : v === 'added' ? diff.added.length
+              : v === 'removed' ? diff.removed.length
+              : diff.changed.length
             return (
               <button key={v} onClick={() => setFilter(v)}
-                className={clsx('px-3 py-1.5 rounded-full text-xs font-medium',
-                  filter === v ? 'bg-blue-500 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200')}>
-                {v === 'all' ? '전체' : v === 'added' ? '신규' : v === 'removed' ? '삭제' : '변경'} {cnt > 0 && cnt}
+                className={clsx(
+                  'px-3 py-1.5 rounded-full text-xs font-medium transition-colors',
+                  filter === v ? 'bg-black text-white' : 'bg-neutral-100 text-neutral-600 hover:bg-neutral-200'
+                )}>
+                {v === 'all' ? '전체' : v === 'added' ? '신규' : v === 'removed' ? '삭제' : '변경'}{cnt > 0 ? ` ${cnt}` : ''}
               </button>
             )
           })}
         </div>
       </div>
-      <div className="card overflow-hidden">
+
+      <div className="border border-neutral-200 rounded-xl overflow-hidden bg-white">
         <div className="overflow-x-auto">
-          <table className="table-base w-full" style={{ tableLayout: 'fixed' }}>
+          <table className="w-full text-sm" style={{ tableLayout: 'fixed' }}>
             <colgroup>
               <col style={{ width: '55px' }} /><col style={{ width: '55px' }} />
               <col style={{ width: '150px' }} /><col style={{ width: 'auto' }} /><col style={{ width: '200px' }} />
             </colgroup>
-            <thead><tr>
-              <th className="text-center">구분</th><th className="text-center">종류</th>
-              <th>코드</th><th>상품명</th><th>변경 내용</th>
-            </tr></thead>
-            <tbody>
+            <thead>
+              <tr className="border-b border-neutral-100 bg-neutral-50">
+                <th className="text-center py-2.5 px-3 text-xs font-medium text-neutral-500">구분</th>
+                <th className="text-center py-2.5 px-3 text-xs font-medium text-neutral-500">종류</th>
+                <th className="py-2.5 px-3 text-xs font-medium text-neutral-500 text-left">코드</th>
+                <th className="py-2.5 px-3 text-xs font-medium text-neutral-500 text-left">상품명</th>
+                <th className="py-2.5 px-3 text-xs font-medium text-neutral-500 text-left">변경 내용</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-neutral-50">
               {rows.length === 0
-                ? <tr><td colSpan={5} className="py-10 text-center text-slate-400">결과 없음</td></tr>
+                ? <tr><td colSpan={5} className="py-12 text-center text-neutral-400 text-sm">결과 없음</td></tr>
                 : rows.map((item: ProductChange) => (
                   <tr key={`${item.change_type}-${item.fund_code}`}
                     className={clsx(
-                      item.change_type === 'added'   && 'bg-green-50/40',
-                      item.change_type === 'removed' && 'bg-red-50/40',
-                      item.change_type === 'changed' && 'bg-amber-50/30',
+                      'hover:bg-neutral-50 transition-colors',
+                      item.change_type === 'added'   && 'bg-green-50/30',
+                      item.change_type === 'removed' && 'bg-red-50/30',
+                      item.change_type === 'changed' && 'bg-amber-50/20',
                     )}>
-                    <td className="text-center"><ChangeBadge type={item.change_type} /></td>
-                    <td className="text-center"><TypeBadge type={item.product_type} /></td>
-                    <td className="font-mono text-xs text-slate-500 truncate">{item.fund_code}</td>
-                    <td className="text-sm truncate" title={item.fund_name}>{item.fund_name}</td>
-                    <td className="text-xs text-slate-500">
+                    <td className="text-center py-2.5 px-3"><ChangeBadge type={item.change_type} /></td>
+                    <td className="text-center py-2.5 px-3"><TypeBadge type={item.product_type} /></td>
+                    <td className="font-mono text-xs text-neutral-500 truncate py-2.5 px-3">{item.fund_code}</td>
+                    <td className="text-sm text-neutral-700 truncate py-2.5 px-3" title={item.fund_name}>{item.fund_name}</td>
+                    <td className="text-xs text-neutral-500 py-2.5 px-3">
                       {item.changes.map(c => (
                         <div key={c.field} className="flex items-center gap-1 flex-wrap">
-                          <span className="font-medium text-slate-600">{c.label}</span>
+                          <span className="font-medium text-neutral-600">{c.label}</span>
                           <span className="line-through text-red-400">{c.old || '—'}</span>
-                          <span>→</span>
+                          <span className="text-neutral-400">→</span>
                           <span className="text-green-600 font-medium">{c.new || '—'}</span>
                         </div>
                       ))}
@@ -467,7 +514,7 @@ function DiffTable({ diff }: { diff: InstitutionDiff }) {
             </tbody>
           </table>
         </div>
-        <div className="px-4 py-2 border-t border-slate-100 text-xs text-slate-400">{rows.length}건 표시</div>
+        <div className="px-4 py-2.5 border-t border-neutral-100 text-xs text-neutral-400">{rows.length}건 표시</div>
       </div>
     </div>
   )
@@ -476,7 +523,6 @@ function DiffTable({ diff }: { diff: InstitutionDiff }) {
 // ── 메인 페이지 ───────────────────────────────────────────────
 
 type ViewTab = 'products' | 'diff'
-
 type DlState = 'idle' | 'working' | 'done'
 
 export default function BankImportsPage() {
@@ -487,7 +533,7 @@ export default function BankImportsPage() {
   const latestQ = useQuery({ queryKey: ['bank-imports'], queryFn: getLatestBankImports, staleTime: 30_000, retry: 1 })
   const diffQ   = useQuery({ queryKey: ['bank-diff'],    queryFn: getBankDiff,          staleTime: 30_000, retry: 1 })
 
-  const isLoading = latestQ.isLoading || diffQ.isLoading
+  const isLoading  = latestQ.isLoading || diffQ.isLoading
   const isFetching = latestQ.isFetching || diffQ.isFetching
 
   const institutions = latestQ.data ?? []
@@ -495,7 +541,7 @@ export default function BankImportsPage() {
 
   const isError = !isLoading && institutions.length === 0 && (latestQ.isError || diffQ.isError)
 
-  const firstKey = institutions[0]?.key ?? null
+  const firstKey  = institutions[0]?.key ?? null
   const activeKey = selectedKey ?? firstKey
 
   const selectedLatest = institutions.find(d => d.key === activeKey)
@@ -505,7 +551,6 @@ export default function BankImportsPage() {
 
   function handleDownload() {
     setDlState('working')
-    // setTimeout 0으로 렌더 먼저 반영 후 무거운 작업 실행
     setTimeout(() => {
       try {
         downloadMasterCsv(institutions)
@@ -521,27 +566,29 @@ export default function BankImportsPage() {
 
   return (
     <div className="p-6 space-y-5">
-      {/* Header */}
+      {/* 헤더 */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-xl font-bold text-slate-800">기관 데이터</h1>
-          <p className="text-sm text-slate-500 mt-0.5">3개 기관 퇴직연금 상품목록 — 최신 이메일 기준</p>
+          <h1 className="text-xl font-semibold text-neutral-900">기관 데이터</h1>
+          <p className="text-sm text-neutral-500 mt-0.5">3개 기관 퇴직연금 상품목록 — 최신 이메일 기준</p>
         </div>
         <div className="flex items-center gap-2">
           <button
             onClick={handleDownload}
             disabled={dlDisabled}
             className={clsx(
-              'flex items-center gap-2 px-3 py-2 rounded-lg text-sm text-white transition-colors disabled:cursor-not-allowed',
-              dlState === 'done'    ? 'bg-green-600'                        :
-              dlState === 'working' ? 'bg-blue-400 opacity-80'              :
-                                     'bg-blue-600 hover:bg-blue-700',
-              dlDisabled && dlState !== 'working' && 'opacity-40',
+              'flex items-center gap-2 h-9 px-5 rounded-full text-sm font-medium transition-colors disabled:cursor-not-allowed',
+              dlState === 'done'
+                ? 'bg-neutral-900 text-white'
+                : dlState === 'working'
+                ? 'bg-neutral-300 text-neutral-500'
+                : 'bg-black text-white hover:bg-neutral-800',
+              dlDisabled && dlState === 'idle' && 'opacity-40',
             )}
           >
             {dlState === 'working' ? (
               <>
-                <svg className="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">
+                <svg className="w-3.5 h-3.5 animate-spin" fill="none" viewBox="0 0 24 24">
                   <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
                   <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
                 </svg>
@@ -549,23 +596,26 @@ export default function BankImportsPage() {
               </>
             ) : dlState === 'done' ? (
               <>
-                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
                 </svg>
-                다운로드 완료
+                완료
               </>
             ) : (
               <>
-                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
                 </svg>
                 종목 마스터 CSV
               </>
             )}
           </button>
-          <button onClick={refetch} disabled={isFetching}
-            className="flex items-center gap-2 px-3 py-2 rounded-lg text-sm text-slate-600 bg-white border border-slate-200 hover:bg-slate-50 disabled:opacity-50">
-            <svg className={clsx('w-4 h-4', isFetching && 'animate-spin')} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <button
+            onClick={refetch}
+            disabled={isFetching}
+            className="flex items-center gap-2 h-9 px-5 rounded-full text-sm font-medium text-neutral-700 bg-white border border-neutral-200 hover:border-neutral-400 transition-colors disabled:opacity-40"
+          >
+            <svg className={clsx('w-3.5 h-3.5', isFetching && 'animate-spin')} fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
             </svg>
             {isFetching ? '불러오는 중...' : '새로고침'}
@@ -573,10 +623,11 @@ export default function BankImportsPage() {
         </div>
       </div>
 
+      {/* 로딩 */}
       {isLoading && (
         <div className="flex items-center justify-center py-24">
-          <div className="flex items-center gap-3 text-slate-500">
-            <svg className="animate-spin w-5 h-5 text-blue-500" fill="none" viewBox="0 0 24 24">
+          <div className="flex items-center gap-3 text-neutral-400">
+            <svg className="animate-spin w-4 h-4" fill="none" viewBox="0 0 24 24">
               <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
               <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
             </svg>
@@ -585,14 +636,17 @@ export default function BankImportsPage() {
         </div>
       )}
 
+      {/* 에러 */}
       {isError && (
-        <div className="flex flex-col items-center justify-center py-24 gap-3">
-          <p className="text-sm text-red-500 font-medium">데이터를 불러오지 못했습니다</p>
-          <p className="text-xs text-slate-400">
+        <div className="flex flex-col items-center justify-center py-24 gap-4">
+          <p className="text-sm text-neutral-900 font-medium">데이터를 불러오지 못했습니다</p>
+          <p className="text-xs text-neutral-400">
             {latestQ.error instanceof Error ? latestQ.error.message : '서버 오류 — 잠시 후 새로고침해 주세요'}
           </p>
-          <button onClick={refetch}
-            className="px-4 py-2 text-sm rounded-lg bg-blue-600 text-white hover:bg-blue-700">
+          <button
+            onClick={refetch}
+            className="h-9 px-5 rounded-full text-sm font-medium bg-black text-white hover:bg-neutral-800 transition-colors"
+          >
             다시 시도
           </button>
         </div>
@@ -603,8 +657,10 @@ export default function BankImportsPage() {
           {/* 기관 카드 */}
           <div className="grid grid-cols-3 gap-4">
             {institutions.map(inst => (
-              <SummaryCard key={inst.key}
-                instKey={inst.key} name={inst.name}
+              <SummaryCard
+                key={inst.key}
+                instKey={inst.key}
+                name={inst.name}
                 selected={activeKey === inst.key}
                 onClick={() => setSelectedKey(inst.key)}
                 latest={inst}
@@ -614,33 +670,34 @@ export default function BankImportsPage() {
           </div>
 
           {/* 뷰 탭 */}
-          <div className="flex items-center gap-2">
-            {([['products','상품 목록'], ['diff','변경사항']] as [ViewTab, string][]).map(([v, label]) => (
-              <button key={v} onClick={() => setViewTab(v)}
-                className={clsx('px-4 py-2 rounded-lg text-sm font-medium transition-colors',
-                  viewTab === v ? 'bg-slate-800 text-white' : 'text-slate-600 hover:bg-slate-100')}>
+          <div className="flex items-center gap-1.5">
+            {([['products', '상품 목록'], ['diff', '변경사항']] as [ViewTab, string][]).map(([v, label]) => (
+              <button
+                key={v}
+                onClick={() => setViewTab(v)}
+                className={clsx(
+                  'h-9 px-4 rounded-full text-sm font-medium transition-colors',
+                  viewTab === v ? 'bg-black text-white' : 'text-neutral-600 hover:bg-neutral-100'
+                )}
+              >
                 {label}
                 {v === 'diff' && selectedDiff && selectedDiff.total_changes > 0 && (
-                  <span className="ml-1.5 px-1.5 py-0.5 bg-orange-400 text-white text-xs rounded-full">
+                  <span className="ml-1.5 px-1.5 py-0.5 bg-white/20 text-white text-xs rounded-full">
                     {selectedDiff.total_changes}
                   </span>
                 )}
               </button>
             ))}
             {viewTab === 'diff' && selectedDiff && (
-              <span className="text-xs text-slate-400 ml-2">
+              <span className="text-xs text-neutral-400 ml-2">
                 {selectedDiff.yesterday_date} → {selectedDiff.today_date}
               </span>
             )}
           </div>
 
           {/* 상세 테이블 */}
-          {viewTab === 'products' && selectedLatest && (
-            <ProductTable inst={selectedLatest} />
-          )}
-          {viewTab === 'diff' && selectedDiff && (
-            <DiffTable diff={selectedDiff} />
-          )}
+          {viewTab === 'products' && selectedLatest && <ProductTable inst={selectedLatest} />}
+          {viewTab === 'diff' && selectedDiff && <DiffTable diff={selectedDiff} />}
         </>
       )}
     </div>
