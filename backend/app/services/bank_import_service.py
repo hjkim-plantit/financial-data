@@ -4,6 +4,8 @@
   - KR7... (KSD ISIN) → ETF  ← DB의 KR7 ISIN과 직접 매칭
   - KRZ... (KSD)      → 펀드 (woori_fund_checked.csv KRZ→K55 매핑으로 DB 조회)
   - K55... / KR5...   → 펀드 KOFIA 코드 ← DB의 K55 코드와 직접 매칭
+
+# KRZ 매핑 소스: Finter krz-mapping (28,317건) + 수동 보정 9건 — 2026-06-18 업데이트
 """
 
 from __future__ import annotations
