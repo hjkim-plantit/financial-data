@@ -159,7 +159,13 @@ async def get_last_updated(db: AsyncSession = Depends(get_db)):
         GROUP BY product_type
     """))
     rows = result.mappings().all()
-    data = {r["product_type"]: r["last_updated"].isoformat() if r["last_updated"] else None for r in rows}
+
+    def _iso(value):
+        if value is None:
+            return None
+        return value if isinstance(value, str) else value.isoformat()
+
+    data = {r["product_type"]: _iso(r["last_updated"]) for r in rows}
     return {"fund": data.get("fund"), "etf": data.get("etf")}
 
 
