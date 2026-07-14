@@ -2,6 +2,7 @@
 
 등록된 스케줄 작업:
   - 매일 06:00 KST  : Morningstar 펀드 데이터 동기화 (판매중단 감지 포함)
+  - 매일 06:15 KST  : fnguide ETF 데이터 동기화
   - 매주 일요일 06:30 : KOFIA API 한글명 업데이트
   - 매일 07:00 KST  : Gmail 첨부파일 임포트
 """
@@ -43,7 +44,29 @@ async def _run_morningstar_sync() -> None:
         logger.error("스케줄러: Morningstar 동기화 실패. error=%s", exc, exc_info=True)
 
 
-# ── 작업 2: KOFIA 한글명 업데이트 ────────────────────────────
+# ── 작업 2: fnguide ETF 동기화 ────────────────────────────────
+
+async def _run_etf_sync() -> None:
+    from app.core.config import settings
+    from app.database import AsyncSessionLocal
+    from app.services.etf_sync import sync_etf_funds
+    from app.services.redash_client import RedashClient
+
+    logger.info("스케줄러: fnguide ETF 동기화 시작")
+    try:
+        redash = RedashClient(base_url=settings.redash_url, api_key=settings.redash_api_key)
+        async with AsyncSessionLocal() as db:
+            stats = await sync_etf_funds(db, redash)
+        logger.info(
+            "스케줄러: ETF 동기화 완료. upserted=%d no_category=%d",
+            stats.get("upserted", 0),
+            stats.get("no_category", 0),
+        )
+    except Exception as exc:
+        logger.error("스케줄러: ETF 동기화 실패. error=%s", exc, exc_info=True)
+
+
+# ── 작업 3: KOFIA 한글명 업데이트 ────────────────────────────
 
 async def _run_kofia_name_update() -> None:
     from app.core.config import settings
@@ -87,7 +110,7 @@ async def _run_kofia_name_update() -> None:
         logger.error("스케줄러: KOFIA 한글명 업데이트 실패. error=%s", exc, exc_info=True)
 
 
-# ── 작업 3: Gmail 임포트 ──────────────────────────────────────
+# ── 작업 4: Gmail 임포트 ──────────────────────────────────────
 
 async def _run_import_trigger() -> None:
     try:
@@ -112,6 +135,15 @@ def setup_scheduler() -> AsyncIOScheduler:
     )
 
     scheduler.add_job(
+        _run_etf_sync,
+        trigger=CronTrigger(hour=6, minute=15, timezone=_KST),
+        id="daily_etf_sync",
+        name="매일 06:15 KST fnguide ETF 동기화",
+        replace_existing=True,
+        misfire_grace_time=600,
+    )
+
+    scheduler.add_job(
         _run_kofia_name_update,
         trigger=CronTrigger(day_of_week="sun", hour=6, minute=30, timezone=_KST),
         id="weekly_kofia_name_update",
@@ -131,6 +163,7 @@ def setup_scheduler() -> AsyncIOScheduler:
 
     logger.info(
         "스케줄러 등록 완료: "
-        "Morningstar동기화(매일 06:00) / KOFIA한글명(매주일 06:30) / Gmail임포트(매일 07:00)"
+        "Morningstar동기화(매일 06:00) / ETF동기화(매일 06:15) / "
+        "KOFIA한글명(매주일 06:30) / Gmail임포트(매일 07:00)"
     )
     return scheduler

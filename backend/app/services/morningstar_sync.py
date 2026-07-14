@@ -165,9 +165,11 @@ async def sync_morningstar_funds(
         batch = fee_rows[i:i + BATCH]
         await db.execute(db_insert(FundFee), batch)
 
-    # 이번 배치에 없는 기존 펀드 → 판매중단으로 변경
+    # 이번 배치에 없는 기존 펀드 → 판매중단으로 변경 (Morningstar 소스 펀드만 대상)
     active_codes = {r["fund_code"] for r in fund_rows}
-    existing = (await db.execute(select(Fund.fund_code))).scalars().all()
+    existing = (
+        await db.execute(select(Fund.fund_code).where(Fund.product_type == "fund"))
+    ).scalars().all()
     delisted = [c for c in existing if c not in active_codes]
     if delisted:
         await db.execute(
