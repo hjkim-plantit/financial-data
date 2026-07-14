@@ -147,7 +147,7 @@ function RiskBadge({ grade }: { grade: number | null }) {
 function TypeBadge({ type }: { type: string }) {
   return (
     <span className={clsx(
-      'inline-flex px-2 py-0.5 rounded-full text-xs font-medium',
+      'inline-flex px-2 py-0.5 rounded-full text-xs font-medium whitespace-nowrap',
       type === 'etf' ? 'bg-neutral-900 text-white' : 'bg-neutral-100 text-neutral-500'
     )}>
       {type === 'etf' ? 'ETF' : '펀드'}
@@ -320,7 +320,7 @@ function ProductTable({ inst }: { inst: InstitutionData }) {
         <div className="overflow-x-auto">
           <table className="w-full text-sm" style={{ tableLayout: 'fixed' }}>
             <colgroup>
-              <col style={{ width: '55px' }} />
+              <col style={{ width: '72px' }} />
               <col style={{ width: '145px' }} />
               <col style={{ width: '145px' }} />
               <col style={{ width: 'auto' }} />
