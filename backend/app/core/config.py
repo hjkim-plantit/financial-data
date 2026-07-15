@@ -19,6 +19,9 @@ class Settings(BaseSettings):
     ngrok_domain: str = ""
     allowed_origins: str = ""
 
+    # OpenDART (금융감독원 전자공시)
+    dart_api_key: str = ""
+
     class Config:
         env_file = ".env"
 

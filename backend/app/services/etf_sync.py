@@ -10,7 +10,7 @@ import logging
 from datetime import date, datetime
 from typing import Optional
 
-from sqlalchemy import delete, text, update
+from sqlalchemy import delete
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import db_insert
@@ -40,16 +40,6 @@ _CATEGORY_L_MAP: dict[str, int] = {
     "원자재":  11,  # commodity_other (중분류 매핑 실패 시)
     "혼합자산": 99,
     "기타":    99,
-}
-
-# 자산군 → 위험등급 근사값 (실제 등록 등급이 있으면 덮어씀)
-_RISK_GRADE_APPROX: dict[str, int] = {
-    "주식":    2,   # 높은위험 (레버리지는 1이지만 구분 불가 → 보수적으로 2)
-    "채권":    4,   # 보통위험
-    "부동산":  3,   # 다소높은위험
-    "인프라":  3,
-    "원자재":  2,
-    "혼합자산": 3,
 }
 
 # ── Redash SQL ────────────────────────────────────────────────
@@ -108,14 +98,11 @@ async def sync_etf_funds(
         if category_id == 99:
             stats["no_category"] += 1
 
-        risk_grade = _RISK_GRADE_APPROX.get(asset_l)
-
         fund_rows.append({
             "fund_code":            fund_code,
             "fund_name":            _str(row.get("fund_name")) or fund_code,
             "management_company":   _str(row.get("management_company")) or "미상",
             "inception_date":       _parse_date(row.get("inception_date")) or today,
-            "risk_grade":           risk_grade,
             "internal_category_id": category_id,
             "product_type":         "etf",
             "status":               _str(row.get("status")) or "운용중",
@@ -162,29 +149,6 @@ async def sync_etf_funds(
     if fee_rows:
         for i in range(0, len(fee_rows), BATCH):
             await db.execute(db_insert(FundFee), fee_rows[i:i + BATCH])
-
-    # risk_grade가 NULL인 ETF에 자산군 근사값 적용 (은행 제공값은 보존)
-    approx_rows = [(r["fund_code"], r["risk_grade"]) for r in fund_rows if r["risk_grade"] is not None]
-    if approx_rows:
-        for i in range(0, len(approx_rows), BATCH):
-            batch = approx_rows[i:i + BATCH]
-            cases = " ".join(f"WHEN :c{j} THEN :g{j}" for j in range(len(batch)))
-            params: dict = {}
-            codes_in = []
-            for j, (code, grade) in enumerate(batch):
-                params[f"c{j}"] = code
-                params[f"g{j}"] = grade
-                codes_in.append(f":c{j}")
-            await db.execute(
-                text(f"""
-                    UPDATE funds
-                    SET risk_grade = CASE fund_code {cases} END
-                    WHERE fund_code IN ({", ".join(codes_in)})
-                      AND product_type = 'etf'
-                      AND risk_grade IS NULL
-                """),
-                params,
-            )
 
     await db.commit()
     stats["upserted"] = len(fund_rows)

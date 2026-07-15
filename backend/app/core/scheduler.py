@@ -5,6 +5,7 @@
   - 매일 06:15 KST  : fnguide ETF 데이터 동기화
   - 매주 일요일 06:30 : KOFIA API 한글명 업데이트
   - 매일 07:00 KST  : Gmail 첨부파일 임포트
+  - 매월 말일 08:00 KST : DART 간이투자설명서 기반 ETF 위험등급 동기화
 """
 
 import logging
@@ -110,7 +111,32 @@ async def _run_kofia_name_update() -> None:
         logger.error("스케줄러: KOFIA 한글명 업데이트 실패. error=%s", exc, exc_info=True)
 
 
-# ── 작업 4: Gmail 임포트 ──────────────────────────────────────
+# ── 작업 4: DART ETF 위험등급 동기화 (매월) ───────────────────
+
+async def _run_dart_risk_grade_sync() -> None:
+    from app.core.config import settings
+    from app.database import AsyncSessionLocal
+    from app.services.dart_risk_grade_sync import sync_dart_risk_grades
+
+    logger.info("스케줄러: DART ETF 위험등급 동기화 시작")
+    try:
+        async with AsyncSessionLocal() as db:
+            stats = await sync_dart_risk_grades(db, dart_api_key=settings.dart_api_key)
+        logger.info(
+            "스케줄러: DART 위험등급 동기화 완료. 전체=%d 공시매칭=%d 등급반영=%d "
+            "corp_code없음=%d 공시못찾음=%d 추출실패=%d",
+            stats.get("total", 0),
+            stats.get("matched", 0),
+            stats.get("extracted", 0),
+            stats.get("no_corp_code", 0),
+            stats.get("no_filing", 0),
+            stats.get("extract_failed", 0),
+        )
+    except Exception as exc:
+        logger.error("스케줄러: DART 위험등급 동기화 실패. error=%s", exc, exc_info=True)
+
+
+# ── 작업 5: Gmail 임포트 ──────────────────────────────────────
 
 async def _run_import_trigger() -> None:
     try:
@@ -161,9 +187,19 @@ def setup_scheduler() -> AsyncIOScheduler:
         misfire_grace_time=300,
     )
 
+    scheduler.add_job(
+        _run_dart_risk_grade_sync,
+        trigger=CronTrigger(day="last", hour=8, minute=0, timezone=_KST),
+        id="monthly_dart_risk_grade_sync",
+        name="매월 말일 08:00 KST DART ETF 위험등급 동기화",
+        replace_existing=True,
+        misfire_grace_time=3600,
+    )
+
     logger.info(
         "스케줄러 등록 완료: "
         "Morningstar동기화(매일 06:00) / ETF동기화(매일 06:15) / "
-        "KOFIA한글명(매주일 06:30) / Gmail임포트(매일 07:00)"
+        "KOFIA한글명(매주일 06:30) / Gmail임포트(매일 07:00) / "
+        "DART위험등급동기화(매월 말일 08:00)"
     )
     return scheduler
