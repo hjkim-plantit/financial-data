@@ -148,7 +148,7 @@ export default function FundListPage() {
           </svg>
           <input
             type="text"
-            placeholder="펀드명으로 검색..."
+            placeholder="펀드명 또는 펀드코드로 검색..."
             value={search}
             onChange={handleSearch}
             className="input-base w-full pl-9"
