@@ -246,10 +246,12 @@ function SummaryCard({ instKey, name, selected, onClick, latest, diff }: {
 
 type MatchFilter = 'all' | 'matched' | 'unmatched'
 type TypeFilter  = 'all' | 'fund' | 'etf'
+type RiskFilter  = 'all' | 1 | 2 | 3 | 4 | 5 | 6
 
 function ProductTable({ inst }: { inst: InstitutionData }) {
   const [typeF, setTypeF]  = useState<TypeFilter>('all')
   const [matchF, setMatchF] = useState<MatchFilter>('all')
+  const [riskF, setRiskF] = useState<RiskFilter>('all')
   const [search, setSearch] = useState('')
   const [editingKrz, setEditingKrz] = useState<string | null>(null)
   const [inputVal, setInputVal] = useState('')
@@ -275,6 +277,7 @@ function ProductTable({ inst }: { inst: InstitutionData }) {
     if (typeF  === 'etf'  && item.product_type !== 'etf')  return false
     if (matchF === 'matched'   && !item.matched) return false
     if (matchF === 'unmatched' && item.matched)  return false
+    if (riskF !== 'all' && item.risk_grade !== riskF) return false
     if (search) {
       const q = search.toLowerCase()
       return item.fund_name.toLowerCase().includes(q) || item.fund_code.toLowerCase().includes(q)
@@ -311,6 +314,17 @@ function ProductTable({ inst }: { inst: InstitutionData }) {
                 matchF === v ? 'bg-black text-white' : 'bg-neutral-100 text-neutral-600 hover:bg-neutral-200'
               )}>
               {v === 'all' ? '전체' : v === 'matched' ? '매칭' : '미매칭'}
+            </button>
+          ))}
+        </div>
+        <div className="flex gap-1">
+          {(['all', 1, 2, 3, 4, 5, 6] as RiskFilter[]).map(v => (
+            <button key={v} onClick={() => setRiskF(v)}
+              className={clsx(
+                'px-3 py-1.5 rounded-full text-xs font-medium transition-colors',
+                riskF === v ? 'bg-black text-white' : 'bg-neutral-100 text-neutral-600 hover:bg-neutral-200'
+              )}>
+              {v === 'all' ? '전체등급' : `${v}등급`}
             </button>
           ))}
         </div>
