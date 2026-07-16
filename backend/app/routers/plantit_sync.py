@@ -1,5 +1,6 @@
 """PlantIt Admin 연동 라우터 — 다기관 상품목록 vs admin 등록 상태 통합 비교/적용."""
 
+import logging
 import re
 from typing import Optional
 from fastapi import APIRouter, HTTPException
@@ -12,6 +13,8 @@ from app.services.plantit_admin_service import (
     apply_institutions,
     compare_institutions,
 )
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/plantit-sync", tags=["PlantIt Admin 연동"])
 
@@ -114,6 +117,10 @@ async def compare(body: SyncRequest):
         r = await compare_institutions(_to_reqs(body))
     except PlantitAdminError as e:
         raise HTTPException(status_code=502, detail=str(e))
+    except Exception as e:
+        # 처리 안 된 예외가 CORS 헤더 없는 500으로 나가면 브라우저엔 Network Error로만 보임
+        logger.error("plantit-sync compare 실패", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"비교 중 오류: {type(e).__name__}: {e}")
     return CompareOut(
         admin_asset_total=r.admin_asset_total,
         universe_counts=r.universe_counts,
@@ -152,6 +159,9 @@ async def apply(body: SyncRequest):
         r = await apply_institutions(reqs)
     except PlantitAdminError as e:
         raise HTTPException(status_code=502, detail=str(e))
+    except Exception as e:
+        logger.error("plantit-sync apply 실패", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"적용 중 오류: {type(e).__name__}: {e}")
     return ApplyOut(
         items=[
             ApplyItemOut(

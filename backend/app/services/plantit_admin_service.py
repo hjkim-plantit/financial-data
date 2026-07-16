@@ -113,16 +113,17 @@ class PlantitAdminClient:
         csrf = m.group(1)
         # FUND는 symbol = isin 전체, ETF는 isin[3:9] 축약형
         symbol = isin if asset_type == "FUND" else isin[3:9]
-        data = [
-            ("csrfmiddlewaretoken", csrf),
-            ("name", name),
-            ("isin", isin),
-            ("symbol", symbol),
-            ("market_type", "DOMESTIC"),
-            ("asset_type", asset_type),
-            ("is_managed", "on"),
-            ("_save", "저장"),
-        ]
+        # httpx는 튜플 리스트 data를 지원하지 않음 — dict 사용 (list 값 = 반복 키)
+        data = {
+            "csrfmiddlewaretoken": csrf,
+            "name": name,
+            "isin": isin,
+            "symbol": symbol,
+            "market_type": "DOMESTIC",
+            "asset_type": asset_type,
+            "is_managed": "on",
+            "_save": "저장",
+        }
         r2 = await self._client.post(
             add_path,
             data=data,
@@ -154,10 +155,12 @@ class PlantitAdminClient:
         if not name_m or not name_m.group(1):
             return False, f"유니버스 이름 파싱 실패 (Universe {universe_id})"
         csrf = csrf_m.group(1)
-        data = [("csrfmiddlewaretoken", csrf), ("name", html_mod.unescape(name_m.group(1)))]
-        for aid in sorted(asset_ids, key=int):
-            data.append(("assets", aid))
-        data.append(("_save", "저장"))
+        data = {
+            "csrfmiddlewaretoken": csrf,
+            "name": html_mod.unescape(name_m.group(1)),
+            "assets": sorted(asset_ids, key=int),  # list 값 → assets 키 반복 인코딩
+            "_save": "저장",
+        }
         r2 = await self._client.post(
             path,
             data=data,
