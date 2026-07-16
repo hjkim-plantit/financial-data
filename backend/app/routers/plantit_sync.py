@@ -1,4 +1,4 @@
-"""PlantIt Admin 연동 라우터 — 기관 상품목록 vs admin 등록 상태 비교/적용."""
+"""PlantIt Admin 연동 라우터 — 다기관 상품목록 vs admin 등록 상태 통합 비교/적용."""
 
 import re
 from typing import Optional
@@ -6,10 +6,11 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
 from app.services.plantit_admin_service import (
+    UNIVERSE_NAMES,
     PlantitAdminError,
     SyncItem,
-    apply_institution,
-    compare_institution,
+    apply_institutions,
+    compare_institutions,
 )
 
 router = APIRouter(prefix="/plantit-sync", tags=["PlantIt Admin 연동"])
@@ -21,33 +22,51 @@ class SyncItemIn(BaseModel):
     product_type: str  # 'fund' | 'etf'
 
 
-class SyncRequest(BaseModel):
+class InstitutionItemsIn(BaseModel):
     key: str  # woori | bnk_busan | bnk_gyeongnam
     items: list[SyncItemIn]
 
 
-class CompareItemOut(BaseModel):
+class SyncRequest(BaseModel):
+    institutions: list[InstitutionItemsIn]
+
+
+class UniverseTargetOut(BaseModel):
+    key: str
+    universe_id: int
+    universe_name: str
+
+
+class MissingProductOut(BaseModel):
     raw_code: str
     fund_name: str
     product_type: str
-    status: str  # asset_missing | universe_missing
-    universe_id: Optional[int]
+    asset_missing: bool
+    universe_targets: list[UniverseTargetOut]
+    institutions: list[str]
+
+
+class InstitutionSummaryOut(BaseModel):
+    key: str
+    total: int
+    registered: int
+    missing: int
 
 
 class CompareOut(BaseModel):
-    key: str
-    universe_note: Optional[str]
     admin_asset_total: int
     universe_counts: dict[int, int]
-    registered: int
-    missing: list[CompareItemOut]
+    institutions: list[InstitutionSummaryOut]
+    universe_note: Optional[str]
+    missing: list[MissingProductOut]
 
 
 class ApplyItemOut(BaseModel):
     raw_code: str
     fund_name: str
     ok: bool
-    action: str
+    asset_created: bool
+    universes_added: list[int]
     detail: str
 
 
@@ -60,7 +79,6 @@ class ApplyUniverseOut(BaseModel):
 
 
 class ApplyOut(BaseModel):
-    key: str
     items: list[ApplyItemOut]
     universes: list[ApplyUniverseOut]
 
@@ -69,32 +87,55 @@ class ApplyOut(BaseModel):
 _KR_CODE_RE = re.compile(r"^KR[A-Z0-9]{10}$")
 
 
-def _to_sync_items(items: list[SyncItemIn]) -> list[SyncItem]:
+def _to_reqs(body: SyncRequest) -> list[tuple[str, list[SyncItem]]]:
     return [
-        SyncItem(raw_code=i.raw_code.strip(), fund_name=i.fund_name, product_type=i.product_type)
-        for i in items
-        if _KR_CODE_RE.match(i.raw_code.strip())
+        (
+            inst.key,
+            [
+                SyncItem(
+                    raw_code=i.raw_code.strip(),
+                    fund_name=i.fund_name,
+                    product_type=i.product_type,
+                )
+                for i in inst.items
+                if _KR_CODE_RE.match(i.raw_code.strip())
+            ],
+        )
+        for inst in body.institutions
     ]
 
 
 @router.post("/compare", response_model=CompareOut)
 async def compare(body: SyncRequest):
-    """이메일 상품 목록과 PlantIt admin 등록 상태 비교 (읽기 전용)."""
+    """여러 기관 상품 목록과 PlantIt admin 등록 상태 통합 비교 (읽기 전용)."""
+    if not body.institutions:
+        raise HTTPException(status_code=400, detail="비교할 기관이 없습니다")
     try:
-        r = await compare_institution(body.key, _to_sync_items(body.items))
+        r = await compare_institutions(_to_reqs(body))
     except PlantitAdminError as e:
         raise HTTPException(status_code=502, detail=str(e))
     return CompareOut(
-        key=r.key,
-        universe_note=r.universe_note,
         admin_asset_total=r.admin_asset_total,
         universe_counts=r.universe_counts,
-        registered=r.registered,
+        institutions=[
+            InstitutionSummaryOut(
+                key=s.key, total=s.total, registered=s.registered, missing=s.missing
+            )
+            for s in r.institutions
+        ],
+        universe_note=r.universe_note,
         missing=[
-            CompareItemOut(
+            MissingProductOut(
                 raw_code=m.raw_code, fund_name=m.fund_name,
-                product_type=m.product_type, status=m.status,
-                universe_id=m.universe_id,
+                product_type=m.product_type, asset_missing=m.asset_missing,
+                universe_targets=[
+                    UniverseTargetOut(
+                        key=k, universe_id=uid,
+                        universe_name=UNIVERSE_NAMES.get(uid, str(uid)),
+                    )
+                    for k, uid in m.universe_targets
+                ],
+                institutions=m.institutions,
             )
             for m in r.missing
         ],
@@ -103,19 +144,20 @@ async def compare(body: SyncRequest):
 
 @router.post("/apply", response_model=ApplyOut)
 async def apply(body: SyncRequest):
-    """미등록 상품을 PlantIt admin에 등록 (자산 신규 + 유니버스 추가)."""
-    if not body.items:
+    """미등록 상품을 PlantIt admin에 등록 (자산 신규 1회 + 해당 유니버스 전체에 추가)."""
+    reqs = _to_reqs(body)
+    if not any(items for _, items in reqs):
         raise HTTPException(status_code=400, detail="적용할 항목이 없습니다")
     try:
-        r = await apply_institution(body.key, _to_sync_items(body.items))
+        r = await apply_institutions(reqs)
     except PlantitAdminError as e:
         raise HTTPException(status_code=502, detail=str(e))
     return ApplyOut(
-        key=r.key,
         items=[
             ApplyItemOut(
-                raw_code=i.raw_code, fund_name=i.fund_name,
-                ok=i.ok, action=i.action, detail=i.detail,
+                raw_code=i.raw_code, fund_name=i.fund_name, ok=i.ok,
+                asset_created=i.asset_created, universes_added=i.universes_added,
+                detail=i.detail,
             )
             for i in r.items
         ],

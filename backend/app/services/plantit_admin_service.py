@@ -170,7 +170,12 @@ class PlantitAdminClient:
         return False, err[:200] or str(r2.url)
 
 
-# ── 비교/적용 오케스트레이션 ──────────────────────────────────
+# ── 비교/적용 오케스트레이션 (다기관 통합, 세션 1회) ──────────
+
+WOORI_NOTE = (
+    "우리은행은 선별 유니버스(U7/U8) 운영 — 자산 등록 여부만 확인하며 유니버스는 변경하지 않습니다."
+)
+
 
 @dataclass
 class SyncItem:
@@ -180,69 +185,118 @@ class SyncItem:
 
 
 @dataclass
-class CompareItemResult:
-    raw_code: str
-    fund_name: str
-    product_type: str
-    status: str                 # asset_missing | universe_missing | registered
-    universe_id: int | None = None
+class InstitutionSummary:
+    key: str
+    total: int = 0
+    registered: int = 0
+    missing: int = 0
 
 
 @dataclass
-class CompareResult:
-    key: str
-    universe_note: str | None
+class MissingProduct:
+    raw_code: str
+    fund_name: str
+    product_type: str
+    asset_missing: bool = False
+    # (기관 key, 유니버스 ID) — 이 상품을 추가해야 할 유니버스 목록
+    universe_targets: list[tuple[str, int]] = field(default_factory=list)
+    # 이 상품이 미등록 상태로 발견된 기관 key 목록 (구분자)
+    institutions: list[str] = field(default_factory=list)
+
+
+@dataclass
+class CompareAllResult:
     admin_asset_total: int
     universe_counts: dict[int, int] = field(default_factory=dict)
-    registered: int = 0
-    missing: list[CompareItemResult] = field(default_factory=list)
+    institutions: list[InstitutionSummary] = field(default_factory=list)
+    universe_note: str | None = None
+    missing: list[MissingProduct] = field(default_factory=list)
 
 
-async def compare_institution(key: str, items: list[SyncItem]) -> CompareResult:
-    """이메일 상품 목록 vs admin 등록 상태 비교 (읽기 전용)."""
-    cfg = INSTITUTION_UNIVERSES.get(key)
-    if cfg is None:
-        raise PlantitAdminError(f"알 수 없는 기관 key: {key}")
+def _validate_keys(reqs: list[tuple[str, list[SyncItem]]]) -> None:
+    for key, _ in reqs:
+        if key not in INSTITUTION_UNIVERSES:
+            raise PlantitAdminError(f"알 수 없는 기관 key: {key}")
 
-    note = (
-        "우리은행은 선별 유니버스(U7/U8) 운영 — 자산 등록 여부만 확인하며 유니버스는 변경하지 않습니다."
-        if key == "woori" else None
-    )
+
+def _needed_universes(reqs: list[tuple[str, list[SyncItem]]]) -> set[int]:
+    return {
+        uid
+        for key, _ in reqs
+        for uid in INSTITUTION_UNIVERSES[key].values()
+        if uid is not None
+    }
+
+
+async def _resolve_asset_id(
+    admin: PlantitAdminClient, isin: str,
+    isin_map: dict[str, str], cache: dict[str, str | None],
+) -> str | None:
+    if isin in isin_map:
+        return isin_map[isin]
+    if isin not in cache:
+        cache[isin] = await admin.get_asset_id(isin)
+    return cache[isin]
+
+
+async def compare_institutions(
+    reqs: list[tuple[str, list[SyncItem]]],
+) -> CompareAllResult:
+    """여러 기관의 이메일 상품 목록 vs admin 등록 상태 통합 비교 (읽기 전용).
+
+    같은 상품이 여러 기관에서 미등록이면 하나의 MissingProduct로 묶고
+    universe_targets/institutions로 어느 기관·유니버스에서 빠졌는지 구분한다.
+    """
+    _validate_keys(reqs)
 
     async with PlantitAdminClient() as admin:
         isin_map = await admin.build_isin_map()
         members: dict[int, set[str]] = {}
-        for uid in cfg.values():
-            if uid is not None:
-                members[uid] = await admin.get_universe_assets(uid)
+        for uid in sorted(_needed_universes(reqs)):
+            members[uid] = await admin.get_universe_assets(uid)
 
-        result = CompareResult(
-            key=key,
-            universe_note=note,
+        result = CompareAllResult(
             admin_asset_total=len(isin_map),
             universe_counts={uid: len(m) for uid, m in members.items()},
+            universe_note=WOORI_NOTE if any(k == "woori" for k, _ in reqs) else None,
         )
 
-        for item in items:
-            aid = isin_map.get(item.raw_code)
-            if not aid:
-                aid = await admin.get_asset_id(item.raw_code)
-            uid = cfg["etf" if item.product_type == "etf" else "fund"]
-            if not aid:
-                result.missing.append(CompareItemResult(
-                    raw_code=item.raw_code, fund_name=item.fund_name,
-                    product_type=item.product_type, status="asset_missing",
-                    universe_id=uid,
-                ))
-            elif uid is not None and aid not in members[uid]:
-                result.missing.append(CompareItemResult(
-                    raw_code=item.raw_code, fund_name=item.fund_name,
-                    product_type=item.product_type, status="universe_missing",
-                    universe_id=uid,
-                ))
-            else:
-                result.registered += 1
+        lookup_cache: dict[str, str | None] = {}
+        missing_by_code: dict[str, MissingProduct] = {}
 
+        for key, items in reqs:
+            cfg = INSTITUTION_UNIVERSES[key]
+            summary = InstitutionSummary(key=key, total=len(items))
+
+            for item in items:
+                aid = await _resolve_asset_id(admin, item.raw_code, isin_map, lookup_cache)
+                uid = cfg["etf" if item.product_type == "etf" else "fund"]
+
+                asset_missing = aid is None
+                universe_missing = (
+                    aid is not None and uid is not None and aid not in members[uid]
+                )
+
+                if not asset_missing and not universe_missing:
+                    summary.registered += 1
+                    continue
+
+                summary.missing += 1
+                mp = missing_by_code.setdefault(item.raw_code, MissingProduct(
+                    raw_code=item.raw_code, fund_name=item.fund_name,
+                    product_type=item.product_type,
+                ))
+                if asset_missing:
+                    mp.asset_missing = True
+                # 자산이 없어도 유니버스 대상이면 등록 후 추가해야 하므로 target에 포함
+                if uid is not None and (key, uid) not in mp.universe_targets:
+                    mp.universe_targets.append((key, uid))
+                if key not in mp.institutions:
+                    mp.institutions.append(key)
+
+            result.institutions.append(summary)
+
+        result.missing = list(missing_by_code.values())
         return result
 
 
@@ -251,7 +305,8 @@ class ApplyItemResult:
     raw_code: str
     fund_name: str
     ok: bool
-    action: str    # asset_created | universe_added | asset_created+universe_added | already_registered | failed
+    asset_created: bool = False
+    universes_added: list[int] = field(default_factory=list)
     detail: str = ""
 
 
@@ -265,61 +320,71 @@ class ApplyUniverseResult:
 
 
 @dataclass
-class ApplyResult:
-    key: str
+class ApplyAllResult:
     items: list[ApplyItemResult] = field(default_factory=list)
     universes: list[ApplyUniverseResult] = field(default_factory=list)
 
 
-async def apply_institution(key: str, items: list[SyncItem]) -> ApplyResult:
-    """미등록 상품을 admin에 등록: 자산 신규 등록 + 유니버스 추가(전체목록 교체 POST).
+async def apply_institutions(
+    reqs: list[tuple[str, list[SyncItem]]],
+) -> ApplyAllResult:
+    """미등록 상품을 admin에 등록: 자산 신규 등록(1회) + 해당하는 모든 유니버스에 추가.
 
-    기존 자산/유니버스 항목은 절대 수정·삭제하지 않고 추가만 한다.
+    유니버스는 전체 목록 교체 POST — 기존 항목은 절대 수정·삭제하지 않고 추가만 한다.
     """
-    cfg = INSTITUTION_UNIVERSES.get(key)
-    if cfg is None:
-        raise PlantitAdminError(f"알 수 없는 기관 key: {key}")
+    _validate_keys(reqs)
 
-    result = ApplyResult(key=key)
+    result = ApplyAllResult()
 
     async with PlantitAdminClient() as admin:
         isin_map = await admin.build_isin_map()
         members: dict[int, set[str]] = {}
-        pending: dict[int, int] = {}  # universe_id → 추가 건수
-        for uid in cfg.values():
-            if uid is not None:
-                members[uid] = await admin.get_universe_assets(uid)
-                pending[uid] = 0
+        pending: dict[int, int] = {}
+        for uid in sorted(_needed_universes(reqs)):
+            members[uid] = await admin.get_universe_assets(uid)
+            pending[uid] = 0
 
-        for item in items:
-            atype = "ETF" if item.product_type == "etf" else "FUND"
-            actions: list[str] = []
+        lookup_cache: dict[str, str | None] = {}
+        item_results: dict[str, ApplyItemResult] = {}   # raw_code → 결과 (기관 간 공유)
+        resolved_ids: dict[str, str] = {}               # raw_code → asset_id
 
-            aid = isin_map.get(item.raw_code)
-            if not aid:
-                aid = await admin.get_asset_id(item.raw_code)
-            if not aid:
-                ok, res = await admin.register_asset(item.fund_name, item.raw_code, atype)
-                if not ok:
-                    result.items.append(ApplyItemResult(
-                        raw_code=item.raw_code, fund_name=item.fund_name,
-                        ok=False, action="failed", detail=f"자산 등록 실패: {res}",
-                    ))
+        for key, items in reqs:
+            cfg = INSTITUTION_UNIVERSES[key]
+
+            for item in items:
+                ir = item_results.get(item.raw_code)
+                if ir is None:
+                    ir = ApplyItemResult(
+                        raw_code=item.raw_code, fund_name=item.fund_name, ok=True
+                    )
+                    item_results[item.raw_code] = ir
+
+                    aid = await _resolve_asset_id(
+                        admin, item.raw_code, isin_map, lookup_cache
+                    )
+                    if not aid:
+                        atype = "ETF" if item.product_type == "etf" else "FUND"
+                        ok, res = await admin.register_asset(
+                            item.fund_name, item.raw_code, atype
+                        )
+                        if not ok:
+                            ir.ok = False
+                            ir.detail = f"자산 등록 실패: {res}"
+                            continue
+                        aid = res
+                        isin_map[item.raw_code] = aid
+                        ir.asset_created = True
+                    resolved_ids[item.raw_code] = aid
+
+                if not ir.ok:
                     continue
-                aid = res
-                isin_map[item.raw_code] = aid
-                actions.append("asset_created")
 
-            uid = cfg["etf" if item.product_type == "etf" else "fund"]
-            if uid is not None and aid not in members[uid]:
-                members[uid].add(aid)
-                pending[uid] += 1
-                actions.append("universe_added")
-
-            result.items.append(ApplyItemResult(
-                raw_code=item.raw_code, fund_name=item.fund_name,
-                ok=True, action="+".join(actions) or "already_registered",
-            ))
+                uid = cfg["etf" if item.product_type == "etf" else "fund"]
+                aid = resolved_ids.get(item.raw_code)
+                if uid is not None and aid and aid not in members[uid]:
+                    members[uid].add(aid)
+                    pending[uid] += 1
+                    ir.universes_added.append(uid)
 
         # 변경된 유니버스만 전체 목록 교체
         for uid, count in pending.items():
@@ -332,12 +397,12 @@ async def apply_institution(key: str, items: list[SyncItem]) -> ApplyResult:
             ))
             if not ok:
                 logger.error("Universe %d 업데이트 실패: %s", uid, detail)
-                # 유니버스 반영 실패 → 해당 유니버스에 추가하려던 항목 상태 보정
-                for it in result.items:
-                    if it.ok and "universe_added" in it.action:
-                        target_uid = cfg["etf" if it.raw_code.startswith("KR7") else "fund"]
-                        if target_uid == uid:
-                            it.ok = False
-                            it.detail = f"유니버스 {uid} 반영 실패: {detail}"
+                for ir in item_results.values():
+                    if uid in ir.universes_added:
+                        ir.universes_added.remove(uid)
+                        ir.ok = False
+                        ir.detail = (ir.detail + f" | 유니버스 {uid} 반영 실패").strip(" |")
+
+        result.items = list(item_results.values())
 
     return result

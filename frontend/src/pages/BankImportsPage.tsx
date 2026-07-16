@@ -5,7 +5,7 @@ import { getBankDiff } from '../api/bankDiff'
 import { comparePlantitSync, applyPlantitSync } from '../api/plantitSync'
 import type { InstitutionData, FundItem } from '../api/bankImports'
 import type { InstitutionDiff, ProductChange } from '../api/bankDiff'
-import type { CompareResult, ApplyResult, SyncItemIn } from '../api/plantitSync'
+import type { CompareResult, ApplyResult, SyncItemIn, InstitutionItemsIn, MissingProduct } from '../api/plantitSync'
 import clsx from 'clsx'
 
 // ── 종목 마스터 CSV 생성 ──────────────────────────────────────
@@ -538,30 +538,54 @@ function DiffTable({ diff }: { diff: InstitutionDiff }) {
 
 // ── PlantIt Admin 연동 패널 ───────────────────────────────────
 
-const UNIVERSE_LABEL: Record<number, string> = {
-  11: 'BNK부산_EMP', 12: 'BNK부산_FoF', 13: 'BNK경남_EMP', 14: 'BNK경남_FoF',
+const UNIVERSE_SHORT: Record<number, string> = {
+  11: '부산 EMP', 12: '부산 FoF', 13: '경남 EMP', 14: '경남 FoF',
+}
+const INST_LABEL: Record<string, string> = {
+  woori: '우리은행', bnk_busan: 'BNK부산', bnk_gyeongnam: 'BNK경남',
 }
 
-function SyncStatusBadge({ status }: { status: string }) {
-  return status === 'asset_missing' ? (
-    <span className="inline-flex px-2 py-0.5 rounded-full text-xs font-medium bg-red-50 text-red-600 whitespace-nowrap">자산 미등록</span>
-  ) : (
-    <span className="inline-flex px-2 py-0.5 rounded-full text-xs font-medium bg-amber-50 text-amber-700 whitespace-nowrap">유니버스 누락</span>
+/** 상품이 어느 기관·유니버스에서 빠졌는지 배지 목록 */
+function MissingTargets({ m }: { m: MissingProduct }) {
+  const universeInsts = new Set(m.universe_targets.map(t => t.key))
+  // 유니버스 target이 없는 기관(우리은행)은 자산 등록만 필요 — 별도 표시
+  const assetOnlyInsts = m.institutions.filter(k => !universeInsts.has(k))
+  return (
+    <div className="flex items-center gap-1 flex-wrap">
+      {m.asset_missing && (
+        <span className="inline-flex px-2 py-0.5 rounded-full text-xs font-medium bg-red-50 text-red-600 whitespace-nowrap">자산 미등록</span>
+      )}
+      {m.universe_targets.map(t => (
+        <span key={`${t.key}-${t.universe_id}`} className="inline-flex px-2 py-0.5 rounded-full text-xs font-medium bg-amber-50 text-amber-700 whitespace-nowrap" title={t.universe_name}>
+          {UNIVERSE_SHORT[t.universe_id] ?? t.universe_name}
+        </span>
+      ))}
+      {assetOnlyInsts.map(k => (
+        <span key={k} className="inline-flex px-2 py-0.5 rounded-full text-xs font-medium bg-neutral-100 text-neutral-500 whitespace-nowrap">
+          {INST_LABEL[k] ?? k}
+        </span>
+      ))}
+    </div>
   )
 }
 
-function AdminSyncPanel({ inst }: { inst: InstitutionData }) {
+function AdminSyncPanel({ institutions }: { institutions: InstitutionData[] }) {
   const [compareResult, setCompareResult] = useState<CompareResult | null>(null)
   const [applyResult, setApplyResult] = useState<ApplyResult | null>(null)
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const [confirming, setConfirming] = useState(false)
+  const [instF, setInstF] = useState<string>('all')
+  const [search, setSearch] = useState('')
 
-  const syncItems: SyncItemIn[] = inst.items.map(i => ({
-    raw_code: i.raw_code, fund_name: i.fund_name, product_type: i.product_type,
-  }))
+  const payload: InstitutionItemsIn[] = institutions
+    .filter(inst => !inst.error && inst.total > 0)
+    .map(inst => ({
+      key: inst.key,
+      items: inst.items.map(i => ({ raw_code: i.raw_code, fund_name: i.fund_name, product_type: i.product_type })),
+    }))
 
   const compareMut = useMutation({
-    mutationFn: () => comparePlantitSync(inst.key, syncItems),
+    mutationFn: () => comparePlantitSync(payload),
     onSuccess: r => {
       setCompareResult(r)
       setApplyResult(null)
@@ -571,7 +595,7 @@ function AdminSyncPanel({ inst }: { inst: InstitutionData }) {
   })
 
   const applyMut = useMutation({
-    mutationFn: (items: SyncItemIn[]) => applyPlantitSync(inst.key, items),
+    mutationFn: (insts: InstitutionItemsIn[]) => applyPlantitSync(insts),
     onSuccess: r => {
       setApplyResult(r)
       setConfirming(false)
@@ -588,11 +612,17 @@ function AdminSyncPanel({ inst }: { inst: InstitutionData }) {
 
   function handleApply() {
     if (!compareResult) return
-    const targets = compareResult.missing
-      .filter(m => selected.has(m.raw_code))
-      .map(m => ({ raw_code: m.raw_code, fund_name: m.fund_name, product_type: m.product_type }))
-    if (targets.length === 0) return
-    applyMut.mutate(targets)
+    // 선택된 상품을 미등록 기관별로 묶어 전송 — 자산 등록은 1회, 유니버스는 해당 기관 전부 반영
+    const byInst = new Map<string, SyncItemIn[]>()
+    for (const m of compareResult.missing) {
+      if (!selected.has(m.raw_code)) continue
+      for (const key of m.institutions) {
+        if (!byInst.has(key)) byInst.set(key, [])
+        byInst.get(key)!.push({ raw_code: m.raw_code, fund_name: m.fund_name, product_type: m.product_type })
+      }
+    }
+    if (byInst.size === 0) return
+    applyMut.mutate(Array.from(byInst, ([key, items]) => ({ key, items })))
   }
 
   const errMsg = (e: unknown) =>
@@ -603,15 +633,16 @@ function AdminSyncPanel({ inst }: { inst: InstitutionData }) {
   if (!compareResult && !compareMut.isPending) {
     return (
       <div className="border border-neutral-200 rounded-xl p-12 text-center bg-white space-y-4">
-        <p className="text-sm text-neutral-700 font-medium">PlantIt Admin 등록 상태 비교</p>
+        <p className="text-sm text-neutral-700 font-medium">PlantIt Admin 등록 상태 통합 비교</p>
         <p className="text-xs text-neutral-400 max-w-md mx-auto">
-          {inst.name} 최신 상품목록({inst.total}건)을 PlantIt admin의 자산·투자유니버스와 대조하여
-          등록되지 않은 상품을 찾습니다. 비교는 읽기 전용입니다.
+          3개 기관 최신 상품목록({payload.reduce((n, p) => n + p.items.length, 0)}건)을 PlantIt admin의
+          자산·투자유니버스와 한 번에 대조하여, 상품별로 어느 기관의 어느 유니버스에서
+          빠졌는지 표시합니다. 비교는 읽기 전용입니다.
         </p>
         {compareMut.isError && <p className="text-xs text-red-500">{errMsg(compareMut.error)}</p>}
         <button
           onClick={() => compareMut.mutate()}
-          disabled={inst.total === 0}
+          disabled={payload.length === 0}
           className="h-9 px-5 rounded-full text-sm font-medium bg-black text-white hover:bg-neutral-800 transition-colors disabled:opacity-40"
         >
           admin과 비교
@@ -628,7 +659,7 @@ function AdminSyncPanel({ inst }: { inst: InstitutionData }) {
           <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
           <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
         </svg>
-        <span className="text-sm">PlantIt admin 데이터 조회 중... (수십 초 걸릴 수 있습니다)</span>
+        <span className="text-sm">PlantIt admin 데이터 조회 중... (1~2분 걸릴 수 있습니다)</span>
       </div>
     )
   }
@@ -637,22 +668,17 @@ function AdminSyncPanel({ inst }: { inst: InstitutionData }) {
 
   // 적용 완료 화면
   if (applyResult) {
-    const okItems = applyResult.items.filter(i => i.ok)
     const failItems = applyResult.items.filter(i => !i.ok)
-    const created = okItems.filter(i => i.action.includes('asset_created')).length
-    const univAdded = okItems.filter(i => i.action.includes('universe_added')).length
+    const created = applyResult.items.filter(i => i.asset_created).length
     return (
       <div className="space-y-3">
         <div className="border border-neutral-200 rounded-xl p-6 bg-white space-y-4">
-          <div className="flex items-center gap-2">
-            <span className={clsx('text-sm font-semibold', failItems.length === 0 ? 'text-green-700' : 'text-amber-700')}>
-              {failItems.length === 0 ? '✓ admin 연동 완료' : '⚠ 일부 항목 실패'}
-            </span>
-          </div>
+          <span className={clsx('text-sm font-semibold', failItems.length === 0 ? 'text-green-700' : 'text-amber-700')}>
+            {failItems.length === 0 ? '✓ admin 연동 완료' : '⚠ 일부 항목 실패'}
+          </span>
           <div className="flex gap-3 text-xs flex-wrap">
             <span className="px-2.5 py-1 rounded-full bg-neutral-100 text-neutral-600">처리 {applyResult.items.length}건</span>
             <span className="px-2.5 py-1 rounded-full bg-green-50 text-green-700">자산 신규등록 {created}건</span>
-            <span className="px-2.5 py-1 rounded-full bg-green-50 text-green-700">유니버스 추가 {univAdded}건</span>
             {failItems.length > 0 && (
               <span className="px-2.5 py-1 rounded-full bg-red-50 text-red-600">실패 {failItems.length}건</span>
             )}
@@ -685,22 +711,35 @@ function AdminSyncPanel({ inst }: { inst: InstitutionData }) {
   }
 
   // 비교 결과 화면
+  const filtered = r.missing.filter(m => {
+    if (instF !== 'all' && !m.institutions.includes(instF)) return false
+    if (search) {
+      const q = search.toLowerCase()
+      return m.fund_name.toLowerCase().includes(q) || m.raw_code.toLowerCase().includes(q)
+    }
+    return true
+  })
   const selCount = r.missing.filter(m => selected.has(m.raw_code)).length
+  const filteredAllSelected = filtered.length > 0 && filtered.every(m => selected.has(m.raw_code))
 
   return (
     <div className="space-y-3">
       {/* 요약 */}
       <div className="flex items-center gap-2 flex-wrap text-xs">
+        {r.institutions.map(s => (
+          <span key={s.key} className={clsx(
+            'px-2.5 py-1 rounded-full',
+            s.missing > 0 ? 'bg-red-50 text-red-600' : 'bg-green-50 text-green-700'
+          )}>
+            {INST_LABEL[s.key] ?? s.key} 등록 {s.registered}/{s.total} · 미등록 {s.missing}
+          </span>
+        ))}
         <span className="px-2.5 py-1 rounded-full bg-neutral-100 text-neutral-600">admin 전체 자산 {r.admin_asset_total.toLocaleString()}건</span>
         {Object.entries(r.universe_counts).map(([uid, cnt]) => (
           <span key={uid} className="px-2.5 py-1 rounded-full bg-neutral-100 text-neutral-600">
-            {UNIVERSE_LABEL[Number(uid)] ?? `U${uid}`} {cnt}건
+            {UNIVERSE_SHORT[Number(uid)] ?? `U${uid}`} {cnt}건
           </span>
         ))}
-        <span className="px-2.5 py-1 rounded-full bg-green-50 text-green-700">등록 완료 {r.registered}건</span>
-        <span className={clsx('px-2.5 py-1 rounded-full', r.missing.length > 0 ? 'bg-red-50 text-red-600' : 'bg-green-50 text-green-700')}>
-          미등록 {r.missing.length}건
-        </span>
         <button
           onClick={() => compareMut.mutate()}
           className="ml-auto px-3 py-1.5 rounded-full text-xs font-medium bg-neutral-100 text-neutral-600 hover:bg-neutral-200 transition-colors"
@@ -715,10 +754,36 @@ function AdminSyncPanel({ inst }: { inst: InstitutionData }) {
 
       {r.missing.length === 0 ? (
         <div className="border border-neutral-200 rounded-xl p-12 text-center bg-white">
-          <p className="text-sm text-green-700 font-medium">✓ 모든 상품이 admin에 등록되어 있습니다</p>
+          <p className="text-sm text-green-700 font-medium">✓ 모든 기관 상품이 admin에 등록되어 있습니다</p>
         </div>
       ) : (
         <>
+          {/* 필터 */}
+          <div className="flex items-center gap-2 flex-wrap">
+            <input
+              type="text"
+              placeholder="펀드명/코드 검색..."
+              value={search}
+              onChange={e => setSearch(e.target.value)}
+              className="flex-1 min-w-48 h-9 px-4 rounded-full border border-neutral-200 bg-neutral-50 text-sm text-neutral-900 placeholder:text-neutral-400 focus:outline-none focus:border-black focus:bg-white transition-colors"
+            />
+            <div className="flex gap-1">
+              {(['all', 'woori', 'bnk_busan', 'bnk_gyeongnam']).map(k => {
+                const cnt = k === 'all' ? r.missing.length : r.missing.filter(m => m.institutions.includes(k)).length
+                if (k !== 'all' && cnt === 0) return null
+                return (
+                  <button key={k} onClick={() => setInstF(k)}
+                    className={clsx(
+                      'px-3 py-1.5 rounded-full text-xs font-medium transition-colors',
+                      instF === k ? 'bg-black text-white' : 'bg-neutral-100 text-neutral-600 hover:bg-neutral-200'
+                    )}>
+                    {k === 'all' ? `전체 ${cnt}` : `${INST_LABEL[k]} ${cnt}`}
+                  </button>
+                )
+              })}
+            </div>
+          </div>
+
           {/* 미등록 목록 */}
           <div className="border border-neutral-200 rounded-xl overflow-hidden bg-white">
             <div className="overflow-x-auto">
@@ -726,47 +791,55 @@ function AdminSyncPanel({ inst }: { inst: InstitutionData }) {
                 <colgroup>
                   <col style={{ width: '44px' }} />
                   <col style={{ width: '55px' }} />
-                  <col style={{ width: '145px' }} />
+                  <col style={{ width: '135px' }} />
                   <col style={{ width: 'auto' }} />
-                  <col style={{ width: '110px' }} />
-                  <col style={{ width: '120px' }} />
+                  <col style={{ width: '260px' }} />
                 </colgroup>
                 <thead>
                   <tr className="border-b border-neutral-100 bg-neutral-50">
                     <th className="text-center py-2.5 px-3">
                       <input
                         type="checkbox"
-                        checked={selCount === r.missing.length && r.missing.length > 0}
-                        onChange={e => setSelected(e.target.checked ? new Set(r.missing.map(m => m.raw_code)) : new Set())}
+                        checked={filteredAllSelected}
+                        onChange={e => {
+                          setSelected(prev => {
+                            const next = new Set(prev)
+                            for (const m of filtered) {
+                              if (e.target.checked) next.add(m.raw_code); else next.delete(m.raw_code)
+                            }
+                            return next
+                          })
+                        }}
                         className="accent-black"
                       />
                     </th>
                     <th className="text-center py-2.5 px-3 text-xs font-medium text-neutral-500">종류</th>
                     <th className="py-2.5 px-3 text-xs font-medium text-neutral-500 text-left">코드</th>
                     <th className="py-2.5 px-3 text-xs font-medium text-neutral-500 text-left">상품명</th>
-                    <th className="text-center py-2.5 px-3 text-xs font-medium text-neutral-500">상태</th>
-                    <th className="text-center py-2.5 px-3 text-xs font-medium text-neutral-500">대상 유니버스</th>
+                    <th className="py-2.5 px-3 text-xs font-medium text-neutral-500 text-left">미등록 위치</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-neutral-50">
-                  {r.missing.map(m => (
-                    <tr key={m.raw_code} className="hover:bg-neutral-50 transition-colors cursor-pointer" onClick={() => toggle(m.raw_code)}>
-                      <td className="text-center py-2.5 px-3">
-                        <input type="checkbox" checked={selected.has(m.raw_code)} onChange={() => toggle(m.raw_code)} onClick={e => e.stopPropagation()} className="accent-black" />
-                      </td>
-                      <td className="text-center py-2.5 px-3"><TypeBadge type={m.product_type} /></td>
-                      <td className="font-mono text-xs text-neutral-500 truncate py-2.5 px-3">{m.raw_code}</td>
-                      <td className="text-sm text-neutral-700 truncate py-2.5 px-3" title={m.fund_name}>{m.fund_name}</td>
-                      <td className="text-center py-2.5 px-3"><SyncStatusBadge status={m.status} /></td>
-                      <td className="text-center py-2.5 px-3 text-xs text-neutral-500">
-                        {m.universe_id ? UNIVERSE_LABEL[m.universe_id] ?? `U${m.universe_id}` : '—'}
-                      </td>
-                    </tr>
-                  ))}
+                  {filtered.length === 0
+                    ? <tr><td colSpan={5} className="py-12 text-center text-neutral-400 text-sm">결과 없음</td></tr>
+                    : filtered.map(m => (
+                      <tr key={m.raw_code} className="hover:bg-neutral-50 transition-colors cursor-pointer" onClick={() => toggle(m.raw_code)}>
+                        <td className="text-center py-2.5 px-3">
+                          <input type="checkbox" checked={selected.has(m.raw_code)} onChange={() => toggle(m.raw_code)} onClick={e => e.stopPropagation()} className="accent-black" />
+                        </td>
+                        <td className="text-center py-2.5 px-3"><TypeBadge type={m.product_type} /></td>
+                        <td className="font-mono text-xs text-neutral-500 truncate py-2.5 px-3">{m.raw_code}</td>
+                        <td className="text-sm text-neutral-700 truncate py-2.5 px-3" title={m.fund_name}>{m.fund_name}</td>
+                        <td className="py-2.5 px-3"><MissingTargets m={m} /></td>
+                      </tr>
+                    ))
+                  }
                 </tbody>
               </table>
             </div>
-            <div className="px-4 py-2.5 border-t border-neutral-100 text-xs text-neutral-400">{r.missing.length}건 미등록 / {selCount}건 선택</div>
+            <div className="px-4 py-2.5 border-t border-neutral-100 text-xs text-neutral-400">
+              {filtered.length}건 표시 (전체 미등록 {r.missing.length}건) / {selCount}건 선택
+            </div>
           </div>
 
           {/* 적용 버튼 */}
@@ -990,7 +1063,7 @@ export default function BankImportsPage() {
           {/* 상세 테이블 */}
           {viewTab === 'products' && selectedLatest && <ProductTable inst={selectedLatest} />}
           {viewTab === 'diff' && selectedDiff && <DiffTable diff={selectedDiff} />}
-          {viewTab === 'admin' && selectedLatest && <AdminSyncPanel key={selectedLatest.key} inst={selectedLatest} />}
+          {viewTab === 'admin' && <AdminSyncPanel institutions={institutions} />}
         </>
       )}
     </div>
