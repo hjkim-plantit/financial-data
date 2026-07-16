@@ -9,6 +9,7 @@ from app.core.config import settings
 from app.routers import categories, funds, uploads
 from app.routers import imports as imports_router
 from app.routers import bank_imports
+from app.routers import plantit_sync
 from app.core.scheduler import setup_scheduler
 from app.database import init_db, AsyncSessionLocal
 from app.models.category import InternalCategory
@@ -79,6 +80,7 @@ app.include_router(funds.router)
 app.include_router(uploads.router)
 app.include_router(imports_router.router)
 app.include_router(bank_imports.router)
+app.include_router(plantit_sync.router)
 
 
 @app.get("/health")

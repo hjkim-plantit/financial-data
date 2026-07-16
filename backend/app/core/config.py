@@ -22,6 +22,11 @@ class Settings(BaseSettings):
     # OpenDART (금융감독원 전자공시)
     dart_api_key: str = ""
 
+    # PlantIt Admin 연동
+    plantit_admin_url: str = "https://api.plantit.it"
+    plantit_admin_user: str = ""
+    plantit_admin_password: str = ""
+
     class Config:
         env_file = ".env"
 
